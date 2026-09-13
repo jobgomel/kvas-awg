@@ -1,0 +1,53 @@
+#!/bin/sh
+ENABLED=yes
+PROG="/opt/apps/kvas-awg/bin/wireproxy"
+CONF="/opt/etc/awg/awg.conf"
+PIDFILE="/var/run/wireproxy.pid"
+LOGFILE="/var/log/wireproxy.log"
+
+case "$1" in
+    start)
+        [ "$ENABLED" != "yes" ] && exit 0
+        if [ ! -f "$CONF" ]; then
+            echo "Конфигурация $CONF не найдена. Сначала выполните: kvas-awg add \"vpn://...\""
+            exit 1
+        fi
+        if [ ! -x "$PROG" ]; then
+            echo "Бинарник $PROG не найден или нет прав на исполнение. Выполните: kvas-awg install"
+            exit 1
+        fi
+        if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+            echo "AmneziaWG (wireproxy) уже запущен."
+        else
+            $PROG -c "$CONF" > "$LOGFILE" 2>&1 &
+            echo $! > "$PIDFILE"
+            echo "AmneziaWG (wireproxy) успешно запущен."
+        fi
+        ;;
+    stop)
+        if [ -f "$PIDFILE" ]; then
+            kill "$(cat "$PIDFILE")" 2>/dev/null
+            rm -f "$PIDFILE"
+            echo "AmneziaWG (wireproxy) остановлен."
+        else
+            killall wireproxy 2>/dev/null
+            echo "AmneziaWG (wireproxy) не был запущен."
+        fi
+        ;;
+    restart)
+        $0 stop && sleep 2 && $0 start
+        ;;
+    status)
+        if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+            echo "AmneziaWG (wireproxy) запущен (PID: $(cat "$PIDFILE"))."
+            exit 0
+        else
+            echo "AmneziaWG (wireproxy) остановлен."
+            exit 1
+        fi
+        ;;
+    *)
+        echo "Использование: $0 {start|stop|restart|status}"
+        exit 1
+        ;;
+esac
