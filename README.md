@@ -1,8 +1,12 @@
 # Kvas-AmneziaWG (kvas-awg) 🛡️
 
-Модульное расширение для менеджера маршрутизации **Kvas** ([qzeleza/kvas](https://github.com/qzeleza/kvas)), добавляющее поддержку протокола **AmneziaWG 3.1** (а также 1.0, 2.0 и 3.0) на роутерах Keenetic с развернутой средой Entware.
+Модульное расширение для менеджера маршрутизации **Kvas** ([qzeleza/kvas](https://github.com/qzeleza/kvas)), добавляющее поддержку протокола **AmneziaWG 3.1** (а также 1.0, 2.0 и 3.0)
+на роутерах Keenetic с развернутой средой Entware.
 
-Построено по модульной архитектуре аналогично пакету **kvas-hysteria** ([jobgomel/kvas-hysteria](https://github.com/jobgomel/kvas-hysteria)), но использует полностью userspace-движок `wireproxy-awg`. Не требует компиляции или загрузки сторонних модулей ядра (`kmod-amneziawg`), работает стабильно на любых ревизиях ядра KeeneticOS и не затрагивает встроенный в прошивку стек WireGuard.
+Построено по модульной архитектуре аналогично пакету **kvas-hysteria** ([jobgomel/kvas-hysteria](https://github.com/jobgomel/kvas-hysteria)),
+но использует полностью userspace-движок `wireproxy-awg` ([artem-russkikh/wireproxy-awg](https://github.com/artem-russkikh/wireproxy-awg)).
+Не требует компиляции или загрузки сторонних модулей ядра (`kmod-amneziawg`), работает стабильно на любых ревизиях ядра KeeneticOS
+и не затрагивает встроенный в прошивку стек WireGuard.
 
 ---
 
@@ -35,7 +39,12 @@
 
 ## 🛠 Установка
 
-### Вариант 1. Из архива (офлайн / распаковка на роутере)
+### Вариант 1. Через curl (из репозитория GitHub)
+```bash
+curl -sL https://raw.githubusercontent.com/jobgomel/kvas-awg/main/install.sh | sh
+```
+
+### Вариант 2. Из архива (офлайн / распаковка на роутере)
 1. Распакуйте архив в любую временную папку на роутере:
    ```bash
    unzip kvas-awg-1.0.0.zip
@@ -44,11 +53,6 @@
    ./install.sh
    ```
 2. Скрипт создаст структуру папок в `/opt/apps/kvas-awg`, настроит системный симлинк `/opt/bin/kvas-awg` и скачает бинарник `wireproxy-awg`.
-
-### Вариант 2. Через curl (из репозитория GitHub)
-```bash
-curl -sL https://raw.githubusercontent.com/jobgomel/kvas-awg/main/install.sh | sh
-```
 
 ---
 
