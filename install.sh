@@ -22,6 +22,7 @@ if [ -d "$DIR/src" ]; then
     cp -f "$DIR/src/etc/init.d/S99awg" "${APPS_DIR}/etc/init.d/"
     cp -f "$DIR/src/etc/ndm/check_space.sh" "${APPS_DIR}/etc/ndm/"
     cp -f "$DIR/src/etc/ndm/test_connection.sh" "${APPS_DIR}/etc/ndm/"
+    cp -f "$DIR/src/etc/ndm/watchdog.sh" "${APPS_DIR}/etc/ndm/"
     if [ -f "$DIR/src/bin/wireproxy" ]; then
         cp -f "$DIR/src/bin/wireproxy" "${APPS_DIR}/bin/"
         chmod +x "${APPS_DIR}/bin/wireproxy"
@@ -34,6 +35,7 @@ else
     curl -sL -o "${APPS_DIR}/etc/init.d/S99awg" "${REPO_RAW}/src/etc/init.d/S99awg"
     curl -sL -o "${APPS_DIR}/etc/ndm/check_space.sh" "${REPO_RAW}/src/etc/ndm/check_space.sh"
     curl -sL -o "${APPS_DIR}/etc/ndm/test_connection.sh" "${REPO_RAW}/src/etc/ndm/test_connection.sh"
+    curl -sL -o "${APPS_DIR}/etc/ndm/watchdog.sh" "${REPO_RAW}/src/etc/ndm/watchdog.sh"
 fi
 
 # Проверка файлов
@@ -46,6 +48,7 @@ chmod +x "${APPS_DIR}/bin/manager.sh"
 chmod +x "${APPS_DIR}/etc/init.d/S99awg"
 chmod +x "${APPS_DIR}/etc/ndm/check_space.sh"
 chmod +x "${APPS_DIR}/etc/ndm/test_connection.sh"
+chmod +x "${APPS_DIR}/etc/ndm/watchdog.sh"
 
 # 3. Создание системного симлинка
 ln -sf "${APPS_DIR}/bin/manager.sh" /opt/bin/kvas-awg
