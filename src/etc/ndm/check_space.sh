@@ -2,7 +2,7 @@
 
 # Импортируем общие переменные и цвета
 # shellcheck source=/dev/null
-. /opt/apps/kvas-awg/etc/conf/env.sh
+[ -f /opt/apps/kvas-awg/etc/conf/env.sh ] && . /opt/apps/kvas-awg/etc/conf/env.sh
 
 echo "Проверка доступного дискового пространства для /opt..."
 
@@ -33,7 +33,14 @@ else
         echo -e "${YELLOW}ВНИМАНИЕ: Ограниченный объём свободной памяти!${NC}"
         echo -e "Свободно всего ${FREE_MB}MB во внутренней памяти роутера."
         echo -n "Вы уверены, что хотите продолжить установку? [y/N]: "
-        read -r CONFIRM
+
+        # Чтение из tty обходит EOF закрытого пайпа curl | sh
+        if [ -c /dev/tty ]; then
+            read -r CONFIRM < /dev/tty
+        else
+            read -r CONFIRM
+        fi
+
         case "$CONFIRM" in
             [yY][eE][sS]|[yY])
                 echo "Продолжаем установку..."
