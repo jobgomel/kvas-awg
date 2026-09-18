@@ -5,15 +5,19 @@ CONF="/opt/etc/awg/awg.conf"
 PIDFILE="/var/run/wireproxy.pid"
 LOGFILE="/var/log/wireproxy.log"
 
+WATCHDOG_PROG="/opt/apps/kvas-awg/etc/ndm/watchdog.sh"
+WATCHDOG_PID="/var/run/wireproxy-watchdog.pid"
+ACTIVE_FLAG="/var/run/wireproxy.active"
+
 case "$1" in
     start)
         [ "$ENABLED" != "yes" ] && exit 0
         if [ ! -f "$CONF" ]; then
-            echo "Конфигурация $CONF не найдена. Сначала выполните: kvas-awg add \"vpn://...\""
+            echo "Конфигурация $CONF не найдена. Сначала выполните: kvas-awg add"
             exit 1
         fi
         if [ ! -x "$PROG" ]; then
-            echo "Бинарник $PROG не найден или нет прав на исполнение. Выполните: kvas-awg install"
+            echo "Бинарник $PROG не найден. Выполните: kvas-awg install"
             exit 1
         fi
         if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
@@ -21,10 +25,28 @@ case "$1" in
         else
             $PROG -c "$CONF" > "$LOGFILE" 2>&1 &
             echo $! > "$PIDFILE"
+            touch "$ACTIVE_FLAG"
             echo "AmneziaWG (wireproxy) успешно запущен."
+        fi
+
+        # Запуск фонового мониторинга
+        if [ -x "$WATCHDOG_PROG" ]; then
+            if [ ! -f "$WATCHDOG_PID" ] || ! kill -0 "$(cat "$WATCHDOG_PID")" 2>/dev/null; then
+                "$WATCHDOG_PROG" >/dev/null 2>&1 &
+                echo $! > "$WATCHDOG_PID"
+            fi
         fi
         ;;
     stop)
+        # 1. Принудительная остановка мониторинга
+        rm -f "$ACTIVE_FLAG"
+        if [ -f "$WATCHDOG_PID" ]; then
+            kill "$(cat "$WATCHDOG_PID")" 2>/dev/null
+            rm -f "$WATCHDOG_PID"
+        fi
+        killall watchdog.sh 2>/dev/null
+
+        # 2. Остановка основного демона wireproxy
         if [ -f "$PIDFILE" ]; then
             kill "$(cat "$PIDFILE")" 2>/dev/null
             rm -f "$PIDFILE"
@@ -40,6 +62,11 @@ case "$1" in
     status)
         if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
             echo "AmneziaWG (wireproxy) запущен (PID: $(cat "$PIDFILE"))."
+            if [ -f "$WATCHDOG_PID" ] && kill -0 "$(cat "$WATCHDOG_PID")" 2>/dev/null; then
+                echo "Мониторинг активен (PID: $(cat "$WATCHDOG_PID"))."
+            else
+                echo "Мониторинг не активен."
+            fi
             exit 0
         else
             echo "AmneziaWG (wireproxy) остановлен."
