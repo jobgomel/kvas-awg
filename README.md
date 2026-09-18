@@ -112,16 +112,17 @@ kvas-awg uninstall
 /opt/apps/kvas-awg/
 ├── bin/
 │   ├── manager.sh              # Главный CLI-инструмент управления
-│   └── wireproxy               # Бинарный файл wireproxy-awg
+│   └── wireproxy               # Userspace Go-бинарник wireproxy-awg
 └── etc/
     ├── conf/
     │   ├── env.sh              # Переменные среды, порты и имена интерфейсов
     │   └── template.conf       # Пример структуры конфига AWG 3.1
     ├── init.d/
-    │   └── S99awg              # Служба автозапуска Entware
+    │   └── S99awg              # Служба автозапуска Entware и запуск watchdog
     └── ndm/
-        ├── check_space.sh      # Проверка свободного места
-        └── test_connection.sh  # Скрипт тестирования проксирования
+        ├── check_space.sh      # Проверка свободного места во flash/USB
+        ├── test_connection.sh  # Скрипт экспресс-тестирования проксирования
+        └── watchdog.sh         # Интеллектуальный сторожевой мониторинг туннеля
 
 /opt/etc/awg/
 └── awg.conf                    # Рабочая конфигурация AmneziaWG 3.1
