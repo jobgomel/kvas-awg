@@ -44,7 +44,8 @@ show_status() {
 
     if [ -f "$FINAL_CONFIG_PATH" ]; then
         echo -e "Конфигурация: ${GREEN}Активна${NC} ($FINAL_CONFIG_PATH)"
-        ENDPOINT=$(grep -i '^[[:space:]]*Endpoint' "$FINAL_CONFIG_PATH" | head -n 1 | awk -F'=' '{print $2}' | tr -d ' ')
+        ENDPOINT=$(grep -i '^[[:space:]]*Endpoint' "$FINAL_CONFIG_PATH" | head -n 1 | awk -F'=' '{print $2}' | tr -d ' 
+')
         [ -n "$ENDPOINT" ] && echo " -> Сервер Endpoint: $ENDPOINT"
         AWG_PARAMS=$(grep -i -E '^[[:space:]]*(HeaderProtectionKey|ContentPaddingAddition|RandomTrailers|Jc|S1|H1)' "$FINAL_CONFIG_PATH" | tr -d ' ' | tr '\n' ', ' | sed 's/,$//')
         [ -n "$AWG_PARAMS" ] && echo " -> Параметры обфускации: $AWG_PARAMS"
@@ -225,6 +226,18 @@ add_config() {
                 B64_PAYLOAD="$CLEAN_STR"
                 ;;
         esac
+
+        # 1. Нормализация URL-Safe Base64 в стандартный Base64:
+        # заменяем '_' на '/' и '-' на '+'
+        B64_PAYLOAD=$(echo "$B64_PAYLOAD" | tr '_-' '/+')
+
+        # 2. Дополняем паддинг '=' до кратности 4, если генератор его опустил
+        MOD=$((${#B64_PAYLOAD} % 4))
+        if [ "$MOD" -eq 2 ]; then
+            B64_PAYLOAD="${B64_PAYLOAD}=="
+        elif [ "$MOD" -eq 3 ]; then
+            B64_PAYLOAD="${B64_PAYLOAD}="
+        fi
 
         # Декодирование Base64
         DECODED=$(echo "$B64_PAYLOAD" | base64 -d 2>/dev/null || true)
