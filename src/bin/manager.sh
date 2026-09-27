@@ -26,6 +26,135 @@ SYSTEM_INIT_PATH="/opt/etc/init.d/S99awg"
 PIDFILE="/var/run/wireproxy.pid"
 LOGFILE="/var/log/wireproxy.log"
 
+detect_optimal_profile() {
+    TOTAL_MEM_KB=$(grep -i '^MemTotal:' /proc/meminfo 2>/dev/null | awk '{print $2}')
+    TOTAL_MEM_MB=$(( ${TOTAL_MEM_KB:-0} / 1024 ))
+    CPUS=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)
+    [ -z "$CPUS" ] || [ "$CPUS" -lt 1 ] && CPUS=1
+
+    # Skipper 4G, Extra, бюджетные роутеры (<= 256MB RAM или 1 ядро)
+    if [ "$TOTAL_MEM_MB" -gt 0 ] && [ "$TOTAL_MEM_MB" -le 270 ] || [ "$CPUS" -le 1 ]; then
+        echo "eco"
+    # Флагманы: >= 700MB RAM и >= 3 ядра (Ultra ARM 1GB, Titan и т.д.)
+    elif [ "$TOTAL_MEM_MB" -ge 700 ] && [ "$CPUS" -ge 3 ]; then
+        echo "perf"
+    # Оптимальный режим по умолчанию (Ultra MIPS 512MB, Speedster, Hopper и т.д.)
+    else
+        echo "balanced"
+    fi
+}
+
+update_env_var() {
+    VAR_NAME="$1"
+    VAR_VAL="$2"
+    if grep -q "^[[:space:]]*${VAR_NAME}=" "$ENV_CONFIG"; then
+        sed -i "s|^[[:space:]]*${VAR_NAME}=.*|${VAR_NAME}=${VAR_VAL}|" "$ENV_CONFIG"
+    else
+        echo "${VAR_NAME}=${VAR_VAL}" >> "$ENV_CONFIG"
+    fi
+}
+
+manage_mode() {
+    TARGET_MODE="$1"
+
+    if [ -z "$TARGET_MODE" ]; then
+        TOTAL_MEM_KB=$(grep -i '^MemTotal:' /proc/meminfo 2>/dev/null | awk '{print $2}')
+        TOTAL_MEM_MB=$(( ${TOTAL_MEM_KB:-0} / 1024 ))
+        CPUS=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)
+        [ -z "$CPUS" ] || [ "$CPUS" -lt 1 ] && CPUS=1
+
+        SUGGESTED=$(detect_optimal_profile)
+
+        echo "=== Управление профилями ресурсов wireproxy ==="
+        echo -e "Характеристики роутера: ${YELLOW}${CPUS}${NC} vCPU / ядер, ${YELLOW}${TOTAL_MEM_MB}MB${NC} RAM"
+        CURR_P="${RESOURCE_PROFILE:-custom}"
+        case "$CURR_P" in
+            eco)      echo -e "Текущий профиль: ${GREEN}eco (Экономичный)${NC}" ;;
+            balanced) echo -e "Текущий профиль: ${GREEN}balanced (Сбалансированный)${NC}" ;;
+            perf)     echo -e "Текущий профиль: ${GREEN}perf (Производительный)${NC}" ;;
+            *)        echo -e "Текущий профиль: ${YELLOW}custom (Пользовательский)${NC}" ;;
+        esac
+        echo "  * GOMAXPROCS: ${GOMAXPROCS:-2}"
+        echo "  * GOMEMLIMIT: ${GOMEMLIMIT:-24MiB}"
+        echo "  * GOGC:       ${GOGC:-25}"
+        echo "  * GODEBUG:    ${GODEBUG:-madvdontneed=1}"
+        echo ""
+        echo "Доступные профили:"
+        echo -e "  ${BLUE}1. eco${NC}      - Экономичный: GOMAXPROCS=1, GOMEMLIMIT=16MiB, GOGC=20"
+        echo "                Минимум потоков (до 4-5) и памяти (~12-16MB). Для роутеров 128-256MB RAM (Skipper, Extra)."
+        echo -e "  ${BLUE}2. balanced${NC} - Сбалансированный (по умолчанию): GOMAXPROCS=2, GOMEMLIMIT=24MiB, GOGC=25"
+        echo "                Оптимальный баланс для большинства роутеров (256-512MB RAM, MT7621/MT7981)."
+        echo -e "  ${BLUE}3. perf${NC}     - Производительный: GOMAXPROCS=3, GOMEMLIMIT=48MiB, GOGC=65"
+        echo "                Максимальная скорость для мощных роутеров с 512MB-1GB RAM (Ultra ARM, Titan)."
+        echo -e "  ${BLUE}4. auto${NC}     - Автоопределение на основе железа (рекомендовано для вашей системы: ${GREEN}${SUGGESTED}${NC})"
+        echo ""
+        echo "Использование:"
+        echo "  ${APP_NAME} mode <eco | balanced | perf | auto>"
+        return 0
+    fi
+
+    case "$TARGET_MODE" in
+        1|eco)
+            NEW_PROFILE="eco"
+            NEW_MAXPROCS=1
+            NEW_MEMLIMIT="16MiB"
+            NEW_GOGC=20
+            PROFILE_TITLE="Экономичный (eco)"
+            ;;
+        2|balanced|default)
+            NEW_PROFILE="balanced"
+            NEW_MAXPROCS=2
+            NEW_MEMLIMIT="24MiB"
+            NEW_GOGC=25
+            PROFILE_TITLE="Сбалансированный (balanced)"
+            ;;
+        3|perf|performance|max)
+            NEW_PROFILE="perf"
+            CPUS=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)
+            [ -z "$CPUS" ] || [ "$CPUS" -lt 1 ] && CPUS=1
+            if [ "$CPUS" -le 2 ]; then
+                NEW_MAXPROCS=2
+            else
+                NEW_MAXPROCS=3
+            fi
+            NEW_MEMLIMIT="48MiB"
+            NEW_GOGC=65
+            PROFILE_TITLE="Производительный (perf)"
+            ;;
+        auto)
+            AUTO_PROFILE=$(detect_optimal_profile)
+            echo -e "Автоопределение выбрало профиль: ${GREEN}${AUTO_PROFILE}${NC}"
+            manage_mode "$AUTO_PROFILE"
+            return $?
+            ;;
+        *)
+            echo -e "${RED}Неизвестный профиль: '$TARGET_MODE'${NC}"
+            echo "Допустимые значения: eco, balanced, perf, auto"
+            return 1
+            ;;
+    esac
+
+    update_env_var "RESOURCE_PROFILE" "\"$NEW_PROFILE\""
+    update_env_var "GOMAXPROCS" "$NEW_MAXPROCS"
+    update_env_var "GOMEMLIMIT" "\"$NEW_MEMLIMIT\""
+    update_env_var "GOGC" "$NEW_GOGC"
+    update_env_var "GODEBUG" "\"madvdontneed=1\""
+
+    # Перезагружаем переменные окружения
+    . "$ENV_CONFIG"
+
+    echo -e "${GREEN}Профиль успешно установлен: ${PROFILE_TITLE}${NC}"
+    echo "Параметры: GOMAXPROCS=$NEW_MAXPROCS, GOMEMLIMIT=$NEW_MEMLIMIT, GOGC=$NEW_GOGC, GODEBUG=madvdontneed=1"
+
+    # Если служба активна, перезапускаем для немедленного применения настроек
+    if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+        echo -e "${YELLOW}Перезапуск службы wireproxy для применения новых параметров...${NC}"
+        "$SYSTEM_INIT_PATH" restart
+    else
+        echo "Параметры применятся при следующем запуске службы."
+    fi
+}
+
 show_status() {
     echo "=== Менеджер Kvas-AmneziaWG (wireproxy-awg) ==="
     if [ -f "$BIN_PATH" ]; then
@@ -36,8 +165,24 @@ show_status() {
         echo -e "Статус: ${RED}Не установлен${NC}"
     fi
 
+    # Профиль ресурсов
+    CURR_P="${RESOURCE_PROFILE:-custom}"
+    case "$CURR_P" in
+        eco)      P_DESC="Экономичный (eco)" ;;
+        balanced) P_DESC="Сбалансированный (balanced)" ;;
+        perf)     P_DESC="Производительный (perf)" ;;
+        *)        P_DESC="Пользовательский (${CURR_P})" ;;
+    esac
+    echo -e "Профиль ресурсов: ${BLUE}${P_DESC}${NC} [GOMAXPROCS=${GOMAXPROCS:-2}, GOMEMLIMIT=${GOMEMLIMIT:-24MiB}, GOGC=${GOGC:-25}]"
+
     if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-        echo -e "Служба: ${GREEN}Запущена${NC} (PID: $(cat "$PIDFILE"))"
+        PID=$(cat "$PIDFILE")
+        echo -e "Служба: ${GREEN}Запущена${NC} (PID: $PID)"
+        if [ -r "/proc/$PID/status" ]; then
+            TH_CNT=$(grep -i '^Threads:' "/proc/$PID/status" 2>/dev/null | awk '{print $2}')
+            VM_RSS=$(grep -i '^VmRSS:' "/proc/$PID/status" 2>/dev/null | awk '{print $2, $3}')
+            [ -n "$TH_CNT" ] && [ -n "$VM_RSS" ] && echo -e " -> Ресурсы процесса: ${TH_CNT} потоков, память (RSS): ${VM_RSS}"
+        fi
     else
         echo -e "Служба: ${RED}Остановлена${NC}"
     fi
@@ -56,7 +201,8 @@ show_status() {
     echo "Использование:"
     echo "  ${APP_NAME} install          - Скачать/обновить бинарный файл wireproxy-awg"
     echo "  ${APP_NAME} uninstall        - Полное удаление пакета и интеграции"
-    echo -e "  ${APP_NAME} add ${BLUE}"link"${NC}       - Импорт 'vpn://...', 'awg://...', Base64 или файла"
+    echo -e "  ${APP_NAME} add ${BLUE}\"link\"${NC}       - Импорт 'vpn://...', 'awg://...', Base64 или файла"
+    echo "  ${APP_NAME} mode [eco|...]   - Управление профилем ресурсов (ОЗУ/CPU)"
     echo "  ${APP_NAME} test             - Экспресс-тест проксирования туннеля"
     echo "  ${APP_NAME} log              - Просмотр журнала работы демона"
     echo "  ${APP_NAME} start | stop | restart"
@@ -371,11 +517,12 @@ show_log() {
 }
 
 case "$1" in
-    install)    install_wireproxy ;;
-    uninstall)  uninstall_packet ;;
-    add)        add_config "$2" ;;
-    test)       run_test ;;
-    log)        show_log ;;
+    install)       install_wireproxy ;;
+    uninstall)     uninstall_packet ;;
+    add)           add_config "$2" ;;
+    mode|profile)  manage_mode "$2" ;;
+    test)          run_test ;;
+    log)           show_log ;;
     start|restart)
         if [ -f "$SYSTEM_INIT_PATH" ]; then
             "$SYSTEM_INIT_PATH" "$1"

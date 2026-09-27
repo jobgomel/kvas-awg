@@ -4,10 +4,14 @@ PROG="/opt/apps/kvas-awg/bin/wireproxy"
 CONF="/opt/etc/awg/awg.conf"
 PIDFILE="/var/run/wireproxy.pid"
 LOGFILE="/var/log/wireproxy.log"
+ENV_FILE="/opt/apps/kvas-awg/etc/conf/env.sh"
 
 WATCHDOG_PROG="/opt/apps/kvas-awg/etc/ndm/watchdog.sh"
 WATCHDOG_PID="/var/run/wireproxy-watchdog.pid"
 ACTIVE_FLAG="/var/run/wireproxy.active"
+
+# Подключаем параметры конфигурации среды и лимиты ресурсов
+[ -f "$ENV_FILE" ] && . "$ENV_FILE"
 
 case "$1" in
     start)
@@ -23,6 +27,10 @@ case "$1" in
         if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
             echo "AmneziaWG (wireproxy) уже запущен."
         else
+            GOMAXPROCS="${GOMAXPROCS:-2}" \
+            GOMEMLIMIT="${GOMEMLIMIT:-24MiB}" \
+            GOGC="${GOGC:-25}" \
+            GODEBUG="${GODEBUG:-madvdontneed=1}" \
             $PROG -c "$CONF" > "$LOGFILE" 2>&1 &
             echo $! > "$PIDFILE"
             touch "$ACTIVE_FLAG"
@@ -61,7 +69,13 @@ case "$1" in
         ;;
     status)
         if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-            echo "AmneziaWG (wireproxy) запущен (PID: $(cat "$PIDFILE"))."
+            PID=$(cat "$PIDFILE")
+            echo "AmneziaWG (wireproxy) запущен (PID: $PID)."
+            if [ -r "/proc/$PID/status" ]; then
+                TH_CNT=$(grep -i '^Threads:' "/proc/$PID/status" 2>/dev/null | awk '{print $2}')
+                VM_RSS=$(grep -i '^VmRSS:' "/proc/$PID/status" 2>/dev/null | awk '{print $2, $3}')
+                [ -n "$TH_CNT" ] && [ -n "$VM_RSS" ] && echo "Ресурсы: ${TH_CNT} потоков, память (RSS): ${VM_RSS}."
+            fi
             if [ -f "$WATCHDOG_PID" ] && kill -0 "$(cat "$WATCHDOG_PID")" 2>/dev/null; then
                 echo "Мониторинг активен (PID: $(cat "$WATCHDOG_PID"))."
             else
