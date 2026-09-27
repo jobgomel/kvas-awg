@@ -37,7 +37,13 @@ show_status() {
     fi
 
     if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-        echo -e "Служба: ${GREEN}Запущена${NC} (PID: $(cat "$PIDFILE"))"
+        PID=$(cat "$PIDFILE")
+        echo -e "Служба: ${GREEN}Запущена${NC} (PID: $PID)"
+        if [ -r "/proc/$PID/status" ]; then
+            TH_CNT=$(grep -i '^Threads:' "/proc/$PID/status" 2>/dev/null | awk '{print $2}')
+            VM_RSS=$(grep -i '^VmRSS:' "/proc/$PID/status" 2>/dev/null | awk '{print $2, $3}')
+            [ -n "$TH_CNT" ] && [ -n "$VM_RSS" ] && echo -e " -> Ресурсы процесса: ${TH_CNT} потоков, память (RSS): ${VM_RSS}"
+        fi
     else
         echo -e "Служба: ${RED}Остановлена${NC}"
     fi
