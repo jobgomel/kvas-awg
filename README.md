@@ -104,7 +104,7 @@ kvas-awg log        # Просмотр последних строк журна�
 kvas-awg mode                 # Просмотр текущего профиля и параметров роутера
 kvas-awg mode eco             # 1 поток, 16MiB RAM, GOGC=20 (Skipper 4G, роутеры 128-256MB)
 kvas-awg mode balanced        # 2 потока, 24MiB RAM, GOGC=25 (Оптимальный баланс по умолчанию)
-kvas-awg mode perf            # 3 потока, 36MiB RAM, GOGC=35 (Ultra ARM, Titan, 512MB-1GB RAM)
+kvas-awg mode perf            # 3 потока, 48MiB RAM, GOGC=65 (Ultra ARM, Titan, 512MB-1GB RAM)
 kvas-awg mode auto            # Автоподбор профиля под объем ОЗУ и процессор
 ```
 

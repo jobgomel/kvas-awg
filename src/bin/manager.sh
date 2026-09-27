@@ -84,7 +84,7 @@ manage_mode() {
         echo "                Минимум потоков (до 4-5) и памяти (~12-16MB). Для роутеров 128-256MB RAM (Skipper, Extra)."
         echo -e "  ${BLUE}2. balanced${NC} - Сбалансированный (по умолчанию): GOMAXPROCS=2, GOMEMLIMIT=24MiB, GOGC=25"
         echo "                Оптимальный баланс для большинства роутеров (256-512MB RAM, MT7621/MT7981)."
-        echo -e "  ${BLUE}3. perf${NC}     - Производительный: GOMAXPROCS=3, GOMEMLIMIT=36MiB, GOGC=35"
+        echo -e "  ${BLUE}3. perf${NC}     - Производительный: GOMAXPROCS=3, GOMEMLIMIT=48MiB, GOGC=65"
         echo "                Максимальная скорость для мощных роутеров с 512MB-1GB RAM (Ultra ARM, Titan)."
         echo -e "  ${BLUE}4. auto${NC}     - Автоопределение на основе железа (рекомендовано для вашей системы: ${GREEN}${SUGGESTED}${NC})"
         echo ""
@@ -117,8 +117,8 @@ manage_mode() {
             else
                 NEW_MAXPROCS=3
             fi
-            NEW_MEMLIMIT="36MiB"
-            NEW_GOGC=35
+            NEW_MEMLIMIT="48MiB"
+            NEW_GOGC=65
             PROFILE_TITLE="Производительный (perf)"
             ;;
         auto)
