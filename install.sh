@@ -41,6 +41,12 @@ if [ -f "${APPS_DIR}/etc/conf/env.sh" ]; then
     cp -f "${APPS_DIR}/etc/conf/env.sh" "$TMP_ENV"
 fi
 
+# Проверяем, была ли служба запущена до обновления
+WAS_RUNNING=0
+if [ -f "/var/run/wireproxy.pid" ] && kill -0 "$(cat /var/run/wireproxy.pid 2>/dev/null)" 2>/dev/null; then
+    WAS_RUNNING=1
+fi
+
 # 3. Установка из локального каталога или загрузка из GitHub
 if [ -d "$DIR/src" ]; then
     echo "Установка компонентов из локального каталога..."
@@ -83,8 +89,16 @@ else
         fi
     fi
 
+    # Если по тегу архив не найден, пробуем загрузить ветку (например: main или dev)
     if [ ! -s "$TMP_ZIP" ]; then
-        echo "Ошибка: Не удалось скачать релиз '${TARGET_TAG}' (${ARCHIVE_URL})."
+        BRANCH_URL="https://github.com/${REPO}/archive/refs/heads/${TARGET_TAG}.zip"
+        if curl -sL -f -o "$TMP_ZIP" "$BRANCH_URL" 2>/dev/null; then
+            ARCHIVE_URL="$BRANCH_URL"
+        fi
+    fi
+
+    if [ ! -s "$TMP_ZIP" ]; then
+        echo "Ошибка: Не удалось скачать релиз/ветку '${TARGET_TAG}' (${ARCHIVE_URL})."
         echo "Для просмотра доступных версий выполните команду: install.sh list"
         rm -rf "$TMP_DIR"
         exit 1
@@ -129,5 +143,11 @@ if [ ! -f "${APPS_DIR}/bin/wireproxy" ]; then
     /opt/bin/kvas-awg install
 else
     ln -sf "${APPS_DIR}/bin/wireproxy" /opt/bin/wireproxy
+fi
+
+if [ "$WAS_RUNNING" -eq 1 ] && [ -f "/opt/etc/init.d/S99awg" ]; then
+    echo "Перезапуск службы wireproxy после обновления пакета..."
+    /opt/etc/init.d/S99awg restart
+else
     /opt/bin/kvas-awg
 fi
