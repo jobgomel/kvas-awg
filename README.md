@@ -41,8 +41,16 @@
 
 ### Вариант 1. Через curl (из репозитория GitHub)
 ```bash
+# Установка последней стабильной версии (latest)
 curl -sL https://raw.githubusercontent.com/jobgomel/kvas-awg/main/install.sh | sh
+
+# Или установка определенной версии (например, 1.2.0)
+curl -sL https://raw.githubusercontent.com/jobgomel/kvas-awg/main/install.sh | sh -s -- 1.2.0
+
+# Просмотр доступных версий релиза
+curl -sL https://raw.githubusercontent.com/jobgomel/kvas-awg/main/install.sh | sh -s -- list
 ```
+
 
 ### Вариант 2. Из архива (офлайн / распаковка на роутере)
 1. Распакуйте архив в любую временную папку на роутере:
@@ -91,6 +99,7 @@ kvas-awg test
 
 ### 4. Управление службой и обновление
 ```bash
+kvas-awg -v | --version       # Вывод текущей версии пакета kvas-awg и wireproxy
 kvas-awg update               # Обновление пакета kvas-awg до последней стабильной версии
 kvas-awg update list          # Просмотр доступных версий (тегов) на GitHub
 kvas-awg update 1.2.0         # Установка конкретной версии (или ветки: kvas-awg update main)
