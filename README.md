@@ -89,13 +89,17 @@ kvas vpn set
 kvas-awg test
 ```
 
-### 4. Управление службой
+### 4. Управление службой и обновление
 ```bash
-kvas-awg start      # Запуск туннеля
-kvas-awg stop       # Остановка
-kvas-awg restart    # Перезапуск
-kvas-awg status     # Текущее состояние процесса (PID, число потоков, RSS) и Endpoint
-kvas-awg log        # Просмотр последних строк журнала работы
+kvas-awg update               # Обновление пакета kvas-awg до последней стабильной версии
+kvas-awg update list          # Просмотр доступных версий (тегов) на GitHub
+kvas-awg update 1.2.0         # Установка конкретной версии (или ветки: kvas-awg update main)
+kvas-awg install              # Скачать/обновить бинарный файл wireproxy-awg
+kvas-awg start                # Запуск туннеля
+kvas-awg stop                 # Остановка
+kvas-awg restart              # Перезапуск
+kvas-awg status               # Текущее состояние процесса (PID, число потоков, RSS) и Endpoint
+kvas-awg log                  # Просмотр последних строк журнала работы
 ```
 
 ### 5. Профили ресурсов (ОЗУ и CPU)
