@@ -33,6 +33,14 @@ echo "=== Установка пакета kvas-awg (AmneziaWG 3.1) ==="
 # 2. Создание структуры папок
 mkdir -p "${APPS_DIR}/bin" "${APPS_DIR}/etc/conf" "${APPS_DIR}/etc/init.d" "${APPS_DIR}/etc/ndm" "/opt/etc/awg"
 
+# Сохраняем существующий env.sh при обновлении
+PRESERVED_ENV=0
+TMP_ENV="/tmp/kvas_env_backup_$$.sh"
+if [ -f "${APPS_DIR}/etc/conf/env.sh" ]; then
+    PRESERVED_ENV=1
+    cp -f "${APPS_DIR}/etc/conf/env.sh" "$TMP_ENV"
+fi
+
 # 3. Установка из локального каталога или загрузка из GitHub
 if [ -d "$DIR/src" ]; then
     echo "Установка компонентов из локального каталога..."
@@ -97,6 +105,13 @@ else
     rm -rf "$TMP_DIR"
 fi
 
+# Восстанавливаем пользовательский env.sh, если он существовал
+if [ "$PRESERVED_ENV" -eq 1 ] && [ -f "$TMP_ENV" ]; then
+    echo "Восстановление пользовательских настроек из предыдущей установки..."
+    cp -f "$TMP_ENV" "${APPS_DIR}/etc/conf/env.sh"
+    rm -f "$TMP_ENV"
+fi
+
 # 4. Назначение прав и создание системного симлинка
 chmod +x "${APPS_DIR}/bin/manager.sh"
 chmod +x "${APPS_DIR}/etc/init.d/S99awg"
@@ -104,7 +119,12 @@ chmod +x "${APPS_DIR}/etc/ndm/"*.sh 2>/dev/null || true
 
 ln -sf "${APPS_DIR}/bin/manager.sh" /opt/bin/kvas-awg
 
-# 5. Установка или обновление бинарника wireproxy-awg
+# 5. Автоматическая калибровка профиля ресурсов при первичной установке
+if [ "$PRESERVED_ENV" -eq 0 ]; then
+    /opt/bin/kvas-awg mode auto
+fi
+
+# 6. Установка или обновление бинарника wireproxy-awg
 if [ ! -f "${APPS_DIR}/bin/wireproxy" ]; then
     /opt/bin/kvas-awg install
 else
