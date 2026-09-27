@@ -4,14 +4,32 @@
 APP_NAME="kvas-awg"
 APP_BASE="/opt/apps/${APP_NAME}"
 ENV_CONFIG="${APP_BASE}/etc/conf/env.sh"
+VERSION_FILE="${APP_BASE}/version"
+
+# Определение текущей версии пакета
+APP_VER="1.2.0"
+if [ -f "$VERSION_FILE" ]; then
+    APP_VER=$(cat "$VERSION_FILE" 2>/dev/null | tr -d '\r\n')
+elif [ -f "$(dirname "$0")/../version" ]; then
+    APP_VER=$(cat "$(dirname "$0")/../version" 2>/dev/null | tr -d '\r\n')
+fi
 
 # Импортируем глобальные переменные проекта
 if [ -f "$ENV_CONFIG" ]; then
     . "$ENV_CONFIG"
+elif [ "$1" = "-v" ] || [ "$1" = "--version" ] || [ "$1" = "-V" ] || [ "$1" = "version" ]; then
+    : # Разрешаем вывод версии даже без основного файла конфигурации окружения
 else
     echo "Критическая ошибка: Файл конфигурации среды $ENV_CONFIG не найден!"
     exit 1
 fi
+
+# Цвета по умолчанию (если env.sh не был загружен)
+RED=${RED:-'\033[0;31m'}
+GREEN=${GREEN:-'\033[0;32m'}
+YELLOW=${YELLOW:-'\033[0;33m'}
+BLUE=${BLUE:-'\033[0;34m'}
+NC=${NC:-'\033[0m'}
 
 # Пути к компонентам приложения
 BIN_PATH="${APP_BASE}/bin/wireproxy"
@@ -156,9 +174,10 @@ manage_mode() {
 }
 
 show_status() {
-    echo "=== Менеджер Kvas-AmneziaWG (wireproxy-awg) ==="
+    echo "=== Менеджер Kvas-AmneziaWG (v${APP_VER}) ==="
     if [ -f "$BIN_PATH" ]; then
-        VERSION=$($BIN_PATH --help 2>&1 | head -n 1)
+        VERSION=$($BIN_PATH -v 2>/dev/null | head -n 1)
+        [ -z "$VERSION" ] && VERSION=$($BIN_PATH --help 2>&1 | head -n 1)
         [ -z "$VERSION" ] && VERSION="Установлен"
         echo -e "Статус: ${GREEN}Установлен${NC} ($VERSION)"
     else
@@ -199,6 +218,7 @@ show_status() {
     fi
     echo "----------------------------------------"
     echo "Использование:"
+    echo "  ${APP_NAME} -v | --version   - Показать текущую версию пакета"
     echo "  ${APP_NAME} update [версия]  - Обновить пакет kvas-awg (latest/версия/ветка)"
     echo "  ${APP_NAME} install          - Скачать/обновить бинарный файл wireproxy-awg"
     echo "  ${APP_NAME} uninstall        - Полное удаление пакета и интеграции"
@@ -543,6 +563,14 @@ update_packet() {
     return "$RET"
 }
 
+show_version() {
+    echo "kvas-awg version ${APP_VER}"
+    if [ -f "$BIN_PATH" ]; then
+        BIN_VER=$($BIN_PATH -v 2>/dev/null | head -n 1)
+        [ -n "$BIN_VER" ] && echo "$BIN_VER"
+    fi
+}
+
 show_log() {
     if [ -f "$LOGFILE" ]; then
         echo "=== Журнал $LOGFILE (последние 40 строк) ==="
@@ -553,6 +581,7 @@ show_log() {
 }
 
 case "$1" in
+    -v|--version|-V|version) show_version ;;
     update|upgrade) update_packet "$2" ;;
     install)       install_wireproxy ;;
     uninstall)     uninstall_packet ;;
