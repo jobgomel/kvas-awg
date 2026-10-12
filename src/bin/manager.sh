@@ -488,29 +488,34 @@ EOF
     sleep 2
 
     # 9. Интеграция с KeeneticOS RCI API
-    echo "Интеграция с KeeneticOS API (обновление интерфейса)..."
-    curl -s -d '[{"interface": { "name": "'${KEENETIC_PROXY_NAME}'","no": true }}]' "localhost:79/rci/" > /dev/null 2>&1
+    IFACE_INFO=$(curl -s "localhost:79/rci/show/interface/${KEENETIC_PROXY_NAME}" 2>/dev/null)
+    if echo "$IFACE_INFO" | grep -q "\"id\": \"${KEENETIC_PROXY_NAME}\""; then
+        echo -e "${GREEN}Интерфейс '${KEENETIC_PROXY_DESC}' (${KEENETIC_PROXY_NAME}) уже существует в KeeneticOS (создание пропущено, маршруты сохранены).${NC}"
+        # Убеждаемся, что интерфейс включен (up)
+        curl -s -d '[{"interface": {"name": "'${KEENETIC_PROXY_NAME}'", "up": true}}]' "localhost:79/rci/" > /dev/null 2>&1
+    else
+        echo "Интеграция с KeeneticOS API (регистрация интерфейса)..."
+        API_DATA='[{
+            "interface": {
+                "name": "'${KEENETIC_PROXY_NAME}'",
+                "description": "'${KEENETIC_PROXY_DESC}'",
+                "proxy": {
+                    "protocol": { "proto": "'${PROXY_PROTO}'" },
+                    "upstream": { "host": "'${PROXY_LOCAL_IP}'", "port": "'${PROXY_LOCAL_PORT_SOCKS}'" },
+                    "socks5-udp": true
+                }
+            },
+            "system": { "configuration": { "save": true } }
+        }]'
 
-    API_DATA='[{
-        "interface": {
-            "name": "'${KEENETIC_PROXY_NAME}'",
-            "description": "'${KEENETIC_PROXY_DESC}'",
-            "proxy": {
-                "protocol": { "proto": "'${PROXY_PROTO}'" },
-                "upstream": { "host": "'${PROXY_LOCAL_IP}'", "port": "'${PROXY_LOCAL_PORT_SOCKS}'" },
-                "socks5-udp": true
-            }
-        },
-        "system": { "configuration": { "save": true } }
-    }]'
+        curl -s -d "${API_DATA}" "localhost:79/rci/" > /dev/null 2>&1
+        curl -s -d '[{"interface": {"name": "'${KEENETIC_PROXY_NAME}'", "up": true}}]' "localhost:79/rci/" > /dev/null 2>&1
 
-    curl -s -d "${API_DATA}" "localhost:79/rci/" > /dev/null 2>&1
-    curl -s -d '[{"interface": {"name": "'${KEENETIC_PROXY_NAME}'", "up": true}}]' "localhost:79/rci/" > /dev/null 2>&1
-
-    echo -e "${GREEN}Интерфейс '${KEENETIC_PROXY_DESC}' (${KEENETIC_PROXY_NAME}) успешно зарегистрирован в KeeneticOS!${NC}"
-    echo -e "${YELLOW}Чтобы переключить маршруты Kvas на этот туннель, выполните:${NC}"
-    echo -e "  ${BLUE}kvas vpn set${NC}"
-    echo ""
+        echo -e "${GREEN}Интерфейс '${KEENETIC_PROXY_DESC}' (${KEENETIC_PROXY_NAME}) успешно зарегистрирован в KeeneticOS!${NC}"
+        echo -e "${YELLOW}Чтобы переключить маршруты Kvas на этот туннель, выполните:${NC}"
+        echo -e "  ${BLUE}kvas vpn set${NC}"
+        echo ""
+    fi
 
     run_test
 }
