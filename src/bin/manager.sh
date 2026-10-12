@@ -1,6 +1,7 @@
 #!/bin/sh
 
 # Изолированные базовые пути приложения
+REPO="jobgomel/kvas-awg"
 APP_NAME="kvas-awg"
 APP_BASE="/opt/apps/${APP_NAME}"
 ENV_CONFIG="${APP_BASE}/etc/conf/env.sh"
@@ -535,6 +536,15 @@ uninstall_packet() {
 
 update_packet() {
     TARGET="$1"
+    FORCE=0
+
+    # Проверка флагов принудительного обновления (--force / -f)
+    if [ "$TARGET" = "-f" ] || [ "$TARGET" = "--force" ]; then
+        FORCE=1
+        TARGET=""
+    elif [ "$2" = "-f" ] || [ "$2" = "--force" ]; then
+        FORCE=1
+    fi
 
     # Если запрошено обновление бинарника wireproxy
     if [ "$TARGET" = "wireproxy" ] || [ "$TARGET" = "bin" ]; then
@@ -543,7 +553,40 @@ update_packet() {
     fi
 
     echo "=== Обновление пакета kvas-awg ==="
-    INSTALL_URL="https://raw.githubusercontent.com/jobgomel/kvas-awg/main/install.sh"
+
+    # Проверка актуальности версии перед обновлением
+    if [ "$FORCE" -eq 0 ]; then
+        if [ -z "$TARGET" ] || [ "$TARGET" = "latest" ]; then
+            echo "Проверка наличия обновлений на GitHub..."
+            LATEST_TAG=$(curl -sI "https://github.com/${REPO}/releases/latest" 2>/dev/null | \
+                        tr -d '\r' | sed -n -E 's/^[Ll]ocation:.*\/tag\/([^[:space:]]+).*/\1/p' | head -n 1)
+
+            if [ -z "$LATEST_TAG" ]; then
+                LATEST_TAG=$(curl -sL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | \
+                            grep -oE '"tag_name": *"[^"]+"' | head -n 1 | cut -d'"' -f4)
+            fi
+
+            CURRENT_CLEAN="${APP_VER#v}"
+            LATEST_CLEAN="${LATEST_TAG#v}"
+
+            if [ -n "$LATEST_CLEAN" ] && [ "$CURRENT_CLEAN" = "$LATEST_CLEAN" ]; then
+                echo -e "${GREEN}У вас уже установлена актуальная версия: ${APP_VER} (latest).${NC}"
+                echo "Обновление не требуется."
+                echo -e "Для принудительной переустановки выполните: ${BLUE}kvas-awg update --force${NC}"
+                return 0
+            fi
+
+            if [ -n "$LATEST_TAG" ]; then
+                echo -e "Доступно обновление: ${YELLOW}${APP_VER}${NC} -> ${GREEN}${LATEST_TAG}${NC}"
+            fi
+        elif [ "${APP_VER#v}" = "${TARGET#v}" ]; then
+            echo -e "${GREEN}Версия ${APP_VER} уже установлена.${NC}"
+            echo -e "Для принудительной переустановки выполните: ${BLUE}kvas-awg update ${TARGET} --force${NC}"
+            return 0
+        fi
+    fi
+
+    INSTALL_URL="https://raw.githubusercontent.com/${REPO}/main/install.sh"
     TMP_INSTALLER="/tmp/kvas_install_$$.sh"
 
     echo "Загрузка актуального скрипта установки с GitHub..."
@@ -556,12 +599,12 @@ update_packet() {
 
     chmod +x "$TMP_INSTALLER"
 
-    echo "Запуск обновления..."
-    if [ -n "$TARGET" ]; then
-        sh "$TMP_INSTALLER" "$TARGET"
-    else
-        sh "$TMP_INSTALLER"
-    fi
+    INSTALL_TARGET="${TARGET:-latest}"
+    ARGS="$INSTALL_TARGET"
+    [ "$FORCE" -eq 1 ] && ARGS="$ARGS --force"
+
+    # shellcheck disable=SC2086
+    FORCE="$FORCE" sh "$TMP_INSTALLER" $ARGS
     RET=$?
 
     rm -f "$TMP_INSTALLER"
@@ -587,7 +630,7 @@ show_log() {
 
 case "$1" in
     -v|--version|-V|version) show_version ;;
-    update|upgrade) update_packet "$2" ;;
+    update|upgrade) update_packet "$2" "$3" ;;
     install)       install_wireproxy ;;
     uninstall)     uninstall_packet ;;
     add)           add_config "$2" ;;
