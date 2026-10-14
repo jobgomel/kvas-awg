@@ -472,9 +472,6 @@ add_config() {
 
 [Socks5]
 BindAddress = ${PROXY_LOCAL_IP}:${PROXY_LOCAL_PORT_SOCKS}
-
-[Http]
-BindAddress = ${PROXY_LOCAL_IP}:${PROXY_LOCAL_PORT_HTTP}
 EOF
 
     chmod 600 "$FINAL_CONFIG_PATH"
