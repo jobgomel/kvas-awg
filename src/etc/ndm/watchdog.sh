@@ -7,11 +7,22 @@ PIDFILE="/var/run/wireproxy.pid"
 ACTIVE_FLAG="/var/run/wireproxy.active"
 LOGFILE="/var/log/wireproxy.log"
 INIT_SCRIPT="/opt/etc/init.d/S99awg"
-CHECK_URL="https://api.ipify.org"
-INTERVAL=30
+CHECK_URLS="${CHECK_URLS:-https://checkip.amazonaws.com https://icanhazip.com https://api.ipify.org https://ipinfo.io/ip https://ifconfig.me/ip https://2ip.io}"
+INTERVAL="${WATCHDOG_INTERVAL:-30}"
+CHECK_COUNTER=0
 
 log_msg() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') [watchdog] $1" >> "$LOGFILE"
+}
+
+get_random_url() {
+    set -- $CHECK_URLS
+    total=$#
+    [ "$total" -le 1 ] && echo "$1" && return
+    CHECK_COUNTER=$(( CHECK_COUNTER + 1 ))
+    rand=${RANDOM:-$(( $(date +%s 2>/dev/null || echo 0) + CHECK_COUNTER ))}
+    idx=$(( (rand % total) + 1 ))
+    eval "echo \${$idx}"
 }
 
 check_internet() {
@@ -19,7 +30,23 @@ check_internet() {
 }
 
 check_proxy() {
-    curl -s -m 5 --connect-timeout 4 -x "socks5h://${PROXY_LOCAL_IP:-127.0.0.1}:${PROXY_LOCAL_PORT_SOCKS:-10818}" "$CHECK_URL" >/dev/null 2>&1
+    target_url=$(get_random_url)
+
+    # 1. Запрос к случайно выбранному эндпоинту из пула
+    if curl -f -s -m 5 --connect-timeout 4 -x "socks5h://${PROXY_LOCAL_IP:-127.0.0.1}:${PROXY_LOCAL_PORT_SOCKS:-10818}" "$target_url" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    # 2. Защита от сбоя конкретного внешнего сервиса: пробуем резервный URL из пула
+    for fallback_url in $CHECK_URLS; do
+        [ "$fallback_url" = "$target_url" ] && continue
+        if curl -f -s -m 5 --connect-timeout 4 -x "socks5h://${PROXY_LOCAL_IP:-127.0.0.1}:${PROXY_LOCAL_PORT_SOCKS:-10818}" "$fallback_url" >/dev/null 2>&1; then
+            return 0
+        fi
+        break
+    done
+
+    return 1
 }
 
 log_msg "Служба мониторинга туннеля запущена."
