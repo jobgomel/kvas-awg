@@ -14,6 +14,7 @@ PROXY_LOCAL_PORT_SOCKS="${PROXY_LOCAL_PORT_SOCKS:-10818}"
 CHECK_URLS="${CHECK_URLS:-https://checkip.amazonaws.com https://icanhazip.com https://api.ipify.org https://ipinfo.io/ip https://ifconfig.me/ip https://2ip.io}"
 CHECK_COUNTER=0
 CURRENT_IP=""
+CURRENT_DOMAIN=""
 
 RED=${RED:-'\033[0;31m'}
 GREEN=${GREEN:-'\033[0;32m'}
@@ -47,6 +48,8 @@ check_proxy() {
 
     if [ -n "$raw_ip" ] && is_valid_ip "$raw_ip"; then
         CURRENT_IP="$raw_ip"
+        CURRENT_DOMAIN="${target_url#*://}"
+        CURRENT_DOMAIN="${CURRENT_DOMAIN%%/*}"
         return 0
     fi
 
@@ -56,6 +59,8 @@ check_proxy() {
         raw_ip=$(query_ip "$fallback_url" 5)
         if [ -n "$raw_ip" ] && is_valid_ip "$raw_ip"; then
             CURRENT_IP="$raw_ip"
+            CURRENT_DOMAIN="${fallback_url#*://}"
+            CURRENT_DOMAIN="${CURRENT_DOMAIN%%/*}"
             return 0
         fi
         break
@@ -95,7 +100,7 @@ echo "Выполняется проверка проксирования чер�
 
 if check_proxy; then
     printf "${GREEN}Тест успешно пройден!${NC}\n"
-    printf "Ваш внешний IP через туннель AmneziaWG: ${BLUE}%s${NC}\n" "$CURRENT_IP"
+    printf "Ваш внешний IP через туннель AmneziaWG: ${BLUE}%s${NC} (${YELLOW}%s${NC})\n" "$CURRENT_IP" "$CURRENT_DOMAIN"
     exit 0
 else
     printf "${RED}Ошибка теста! Прокси-сервер не отвечает или туннель не установил соединение.${NC}\n"
