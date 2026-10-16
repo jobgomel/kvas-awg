@@ -28,7 +28,7 @@
   * Автоматически регистрирует прокси-интерфейс `Proxy42` (`Kvas-proxy-awg`) через RCI API (`localhost:79/rci/`).
   * Для переключения трафика достаточно выполнить `kvas vpn set`.
 * **Совместимость с Hysteria 2:** 
-  * Использует порты `10818` (SOCKS5) и `10819` (HTTP), имя интерфейса `Proxy42`. Пакеты `kvas-hysteria` (порт 10808, `Proxy41`) и `kvas-awg` могут быть установлены параллельно на одном роутере без взаимных конфликтов.
+  * Использует порты `10818` (SOCKS5) ~~и `10819` (HTTP)~~, имя интерфейса `Proxy42`. Пакеты `kvas-hysteria` (порт 10808, `Proxy41`) и `kvas-awg` могут быть установлены параллельно на одном роутере без взаимных конфликтов.
 * **Автоопределение архитектуры процессора:** Автоматически скачивает и верифицирует нужный бинарник `wireproxy-awg` под платформы Keenetic:
   * `mipsle` (MediaTek MT7621AT, MT7628, EN7512, EN7516 — большинство роутеров Keenetic)
   * `arm` (ARMv7 32-bit: Cortex-A7 / Cortex-A9, например Ultra KN-1810, Giga KN-1010)
@@ -55,7 +55,7 @@ curl -sL https://raw.githubusercontent.com/jobgomel/kvas-awg/main/install.sh | s
 ### Вариант 2. Из архива (офлайн / распаковка на роутере)
 1. Распакуйте архив в любую временную папку на роутере:
    ```bash
-   unzip kvas-awg-1.0.0.zip
+   tar -xzf kvas-awg-1.0.0.tar.gz
    cd kvas-awg-1.0.0
    chmod +x install.sh
    ./install.sh
