@@ -266,7 +266,7 @@ install_wireproxy() {
     fi
 
     echo "Запрос актуальной версии wireproxy-awg с GitHub..."
-    LATEST_VERSION=$(curl -sI https://github.com/artem-russkikh/wireproxy-awg/releases/latest 2>/dev/null | grep -i 'location:' | sed -E 's/.*\/tag\/([^[:space:]\r\n]+).*/\1/')
+    LATEST_VERSION=$(curl -4 -sI --connect-timeout 10 https://github.com/artem-russkikh/wireproxy-awg/releases/latest 2>/dev/null | grep -i 'location:' | sed -E 's/.*\/tag\/([^[:space:]\r\n]+).*/\1/')
 
     if [ -z "$LATEST_VERSION" ] || echo "$LATEST_VERSION" | grep -q "{" ; then
         echo -e "${YELLOW}Предупреждение: Не удалось определить последний тег, используем стабильный v1.0.18${NC}"
@@ -280,7 +280,7 @@ install_wireproxy() {
     DOWNLOAD_URL="https://github.com/artem-russkikh/wireproxy-awg/releases/download/${LATEST_VERSION}/wireproxy_linux_${BINARY_ARCH}.tar.gz"
 
     echo -e "Скачиваем ${BLUE}wireproxy-awg ${LATEST_VERSION}${NC} для ${YELLOW}${BINARY_ARCH}${NC}..."
-    if ! curl -L -f -o "$TMP_ARCHIVE" "$DOWNLOAD_URL"; then
+    if ! curl -4 -L -f --connect-timeout 20 -o "$TMP_ARCHIVE" "$DOWNLOAD_URL"; then
         echo -e "${RED}Ошибка: Не удалось скачать архив с GitHub (${DOWNLOAD_URL}).${NC}"
         rm -rf "$TMP_DIR"
         exit 1
@@ -372,7 +372,7 @@ add_config() {
     # 3. Если передана HTTP/HTTPS ссылка
     elif echo "$INPUT" | grep -q -E '^https?://'; then
         echo "Загрузка по веб-ссылке $INPUT..."
-        RAW_CONTENT=$(curl -sL "$INPUT")
+        RAW_CONTENT=$(curl -4 -sL --connect-timeout 15 "$INPUT")
     else
         RAW_CONTENT="$INPUT"
     fi
@@ -555,11 +555,11 @@ update_packet() {
     if [ "$FORCE" -eq 0 ]; then
         if [ -z "$TARGET" ] || [ "$TARGET" = "latest" ]; then
             echo "Проверка наличия обновлений на GitHub..."
-            LATEST_TAG=$(curl -sI "https://github.com/${REPO}/releases/latest" 2>/dev/null | \
+            LATEST_TAG=$(curl -4 -sI --connect-timeout 10 "https://github.com/${REPO}/releases/latest" 2>/dev/null | \
                         tr -d '\r' | sed -n -E 's/^[Ll]ocation:.*\/tag\/([^[:space:]]+).*/\1/p' | head -n 1)
 
             if [ -z "$LATEST_TAG" ]; then
-                LATEST_TAG=$(curl -sL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | \
+                LATEST_TAG=$(curl -4 -sL --connect-timeout 10 "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | \
                             grep -oE '"tag_name": *"[^"]+"' | head -n 1 | cut -d'"' -f4)
             fi
 
@@ -584,10 +584,24 @@ update_packet() {
     fi
 
     INSTALL_URL="https://raw.githubusercontent.com/${REPO}/main/install.sh"
+    API_URL="https://api.github.com/repos/${REPO}/contents/install.sh"
     TMP_INSTALLER="/tmp/kvas_install_$$.sh"
 
     echo "Загрузка актуального скрипта установки с GitHub..."
-    if ! curl -sL -f -o "$TMP_INSTALLER" "$INSTALL_URL" 2>/dev/null; then
+    DOWNLOADED=0
+
+    # 1. Прямая загрузка через IPv4 (защита от неработающего IPv6 на роутере)
+    if curl -4 -sL -f --connect-timeout 10 -o "$TMP_INSTALLER" "$INSTALL_URL" 2>/dev/null; then
+        DOWNLOADED=1
+    # 2. Резервный источник через GitHub API (raw-заголовок)
+    elif curl -4 -sL -f --connect-timeout 10 -H "Accept: application/vnd.github.raw" -o "$TMP_INSTALLER" "$API_URL" 2>/dev/null; then
+        DOWNLOADED=1
+    # 3. Резерв через локальный туннель wireproxy (если служба активна)
+    elif [ -n "${PROXY_LOCAL_PORT_SOCKS}" ] && curl -sL -f --connect-timeout 10 -x "socks5h://${PROXY_LOCAL_IP:-127.0.0.1}:${PROXY_LOCAL_PORT_SOCKS}" -o "$TMP_INSTALLER" "$INSTALL_URL" 2>/dev/null; then
+        DOWNLOADED=1
+    fi
+
+    if [ "$DOWNLOADED" -eq 0 ] || [ ! -s "$TMP_INSTALLER" ]; then
         echo -e "${RED}Ошибка: Не удалось скачать скрипт установки с ${INSTALL_URL}${NC}"
         echo "Проверьте доступность интернета."
         rm -f "$TMP_INSTALLER"
