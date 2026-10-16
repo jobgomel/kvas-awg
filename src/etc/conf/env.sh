@@ -22,6 +22,7 @@ GODEBUG="madvdontneed=1"
 KEENETIC_PROXY_NAME="Proxy42"
 KEENETIC_PROXY_DESC="Kvas-proxy-awg"
 PROXY_PROTO="socks5"
+DEFAULT_PROXY_MTU=1376
 
 # Цвета для вывода в терминал
 RED='\033[0;31m'
