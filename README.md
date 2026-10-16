@@ -55,7 +55,7 @@ curl -sL https://raw.githubusercontent.com/jobgomel/kvas-awg/main/install.sh | s
 ### Вариант 2. Из архива (офлайн / распаковка на роутере)
 1. Распакуйте архив в любую временную папку на роутере:
    ```bash
-   unzip kvas-awg-1.0.0.zip
+   tar -xzf kvas-awg-1.0.0.tar.gz
    cd kvas-awg-1.0.0
    chmod +x install.sh
    ./install.sh
