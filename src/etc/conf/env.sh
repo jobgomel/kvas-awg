@@ -3,7 +3,6 @@
 # Параметры локального прокси-сервера AmneziaWG (wireproxy)
 PROXY_LOCAL_IP="127.0.0.1"
 PROXY_LOCAL_PORT_SOCKS=10818
-PROXY_LOCAL_PORT_HTTP=10819
 
 # Профиль использования ресурсов (eco | balanced | perf | custom)
 RESOURCE_PROFILE="balanced"

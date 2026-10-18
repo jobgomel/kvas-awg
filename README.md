@@ -142,8 +142,7 @@ kvas-awg uninstall
 │   └── wireproxy               # Userspace Go-бинарник wireproxy-awg
 └── etc/
     ├── conf/
-    │   ├── env.sh              # Переменные среды, порты и имена интерфейсов
-    │   └── template.conf       # Пример структуры конфига AWG 3.1
+    │   └── env.sh              # Переменные среды, порты и имена интерфейсов
     ├── init.d/
     │   └── S99awg              # Служба автозапуска Entware и запуск watchdog
     └── ndm/
