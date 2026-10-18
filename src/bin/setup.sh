@@ -34,8 +34,14 @@ if [ "$PRESERVED_ENV" -eq 1 ] && [ -n "$TMP_ENV" ] && [ -f "$TMP_ENV" ]; then
                     key="${line%%=*}"
                     key=$(echo "$key" | tr -d " \t")
                     val="${line#*=}"
+                    case "$key" in
+                        RED|GREEN|YELLOW|BLUE|NC|KEENETIC_PROXY_NAME|KEENETIC_PROXY_DESC|PROXY_PROTO)
+                            # Пропускаем системные константы (принудительно перезаписываются в const.sh)
+                            continue
+                            ;;
+                    esac
                     if grep -q "^[[:space:]]*${key}=" "$TARGET_ENV"; then
-                        esc_val=$(echo "$val" | sed -e "s/[|&]/\\\\&/g")
+                        esc_val=$(printf '%s\n' "$val" | sed -e 's/\\/\\\\/g' -e 's/[|&]/\\&/g')
                         sed -i "s|^[[:space:]]*${key}=.*|${key}=${esc_val}|" "$TARGET_ENV"
                     else
                         echo "${line}" >> "$TARGET_ENV"
@@ -47,6 +53,20 @@ if [ "$PRESERVED_ENV" -eq 1 ] && [ -n "$TMP_ENV" ] && [ -f "$TMP_ENV" ]; then
         cp -f "$TMP_ENV" "$TARGET_ENV"
     fi
     rm -f "$TMP_ENV"
+fi
+
+# Очистка устаревших переменных цветов из env.sh (константы вынесены в const.sh)
+TARGET_ENV="${APPS_DIR}/etc/conf/env.sh"
+if [ -f "$TARGET_ENV" ]; then
+    sed -i -E "/^[[:space:]]*(RED|GREEN|YELLOW|BLUE|NC)=/d" "$TARGET_ENV" 2>/dev/null || true
+    if ! grep -q "const.sh" "$TARGET_ENV"; then
+        TMP_FIX="/tmp/kvas_env_fix_$$.sh"
+        {
+            echo '#!/bin/sh'
+            echo '[ -f /opt/apps/kvas-awg/etc/conf/const.sh ] && . /opt/apps/kvas-awg/etc/conf/const.sh'
+            cat "$TARGET_ENV"
+        } > "$TMP_FIX" && mv -f "$TMP_FIX" "$TARGET_ENV"
+    fi
 fi
 
 # 2. Создание необходимых системных каталогов
@@ -66,6 +86,13 @@ chmod +x "${APPS_DIR}/etc/ndm/ifstatechanged.d/"*.sh 2>/dev/null || true
 
 # 4. Создание системных симлинков
 ln -sf "${APPS_DIR}/bin/manager.sh" /opt/bin/kvas-awg
+
+INIT_SCRIPT="${APPS_DIR}/etc/init.d/S99awg"
+if [ -f "$INIT_SCRIPT" ]; then
+    mkdir -p /opt/etc/init.d
+    chmod +x "$INIT_SCRIPT"
+    ln -sf "$INIT_SCRIPT" /opt/etc/init.d/S99awg
+fi
 
 MTU_HOOK="${APPS_DIR}/etc/ndm/ifstatechanged.d/010-awg-mtu.sh"
 if [ -f "$MTU_HOOK" ]; then
