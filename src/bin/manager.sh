@@ -211,7 +211,14 @@ show_status() {
         echo -e "Конфигурация: ${GREEN}Активна${NC} ($FINAL_CONFIG_PATH)"
         ENDPOINT=$(grep -i '^[[:space:]]*Endpoint' "$FINAL_CONFIG_PATH" | head -n 1 | awk -F'=' '{print $2}' | tr -d ' 
 ')
-        [ -n "$ENDPOINT" ] && echo " -> Сервер Endpoint: $ENDPOINT"
+        CFG_MTU=$(grep -i '^[[:space:]]*MTU' "$FINAL_CONFIG_PATH" | head -n 1 | awk -F'=' '{print $2}' | tr -d ' \r\n\t')
+        [ -n "$CFG_MTU" ] && echo " -> MTU туннеля: $CFG_MTU"
+        DEV=$(grep -E "^${KEENETIC_PROXY_NAME}\|" /opt/etc/inface_equals 2>/dev/null | cut -d'|' -f2)
+        [ -z "$DEV" ] && DEV=$(echo "${KEENETIC_PROXY_NAME}" | sed 's/Proxy/t2s/')
+        IFACE_MTU=""
+        [ -n "$DEV" ] && [ -r "/sys/class/net/$DEV/mtu" ] && IFACE_MTU=$(cat "/sys/class/net/$DEV/mtu" 2>/dev/null)
+        [ -z "$IFACE_MTU" ] && IFACE_MTU=$(curl -4 -s "http://127.0.0.1:79/rci/show/interface/${KEENETIC_PROXY_NAME}" 2>/dev/null | grep -oE '"mtu": *[0-9]+' | head -n 1 | awk '{print $2}')
+        [ -n "$IFACE_MTU" ] && echo " -> MTU интерфейса ${KEENETIC_PROXY_NAME} (${DEV}): $IFACE_MTU"
         AWG_PARAMS=$(grep -i -E '^[[:space:]]*(HeaderProtectionKey|ContentPaddingAddition|RandomTrailers|Jc|S1|H1)' "$FINAL_CONFIG_PATH" | tr -d ' ' | tr '\n' ', ' | sed 's/,$//')
         [ -n "$AWG_PARAMS" ] && echo " -> Параметры обфускации: $AWG_PARAMS"
     else
@@ -521,18 +528,29 @@ EOF
     "$SYSTEM_INIT_PATH" restart
     sleep 2
 
-    # 9. Интеграция с KeeneticOS RCI API
+    # 9. Определение MTU для виртуального интерфейса KeeneticOS
+    PARSED_MTU=$(grep -Ei '^[[:space:]]*MTU[[:space:]]*=' "$FINAL_CONFIG_PATH" | head -n 1 | awk -F '=' '{print $2}' | tr -d ' \r\n\t')
+    if [ -n "$PARSED_MTU" ] && [ "$PARSED_MTU" -ge 576 ] 2>/dev/null && [ "$PARSED_MTU" -le 9000 ] 2>/dev/null; then
+        TARGET_MTU="$PARSED_MTU"
+        echo -e "Определен MTU из конфигурации AWG: ${GREEN}${TARGET_MTU}${NC}"
+    else
+        TARGET_MTU="${DEFAULT_PROXY_MTU:-1376}"
+        echo -e "MTU не указан в конфигурации AWG, используется значение по умолчанию: ${YELLOW}${TARGET_MTU}${NC}"
+    fi
+
+    # 10. Интеграция с KeeneticOS RCI API
     IFACE_INFO=$(curl -4 -s "http://127.0.0.1:79/rci/show/interface/${KEENETIC_PROXY_NAME}" 2>/dev/null)
     if echo "$IFACE_INFO" | grep -q "\"id\": \"${KEENETIC_PROXY_NAME}\""; then
-        echo -e "${GREEN}Интерфейс '${KEENETIC_PROXY_DESC}' (${KEENETIC_PROXY_NAME}) уже существует в KeeneticOS (создание пропущено, маршруты сохранены).${NC}"
-        # Убеждаемся, что интерфейс включен (up)
-        curl -4 -s -d '[{"interface": {"name": "'${KEENETIC_PROXY_NAME}'", "up": true}}]' "http://127.0.0.1:79/rci/" > /dev/null 2>&1
+        echo -e "${GREEN}Интерфейс '${KEENETIC_PROXY_DESC}' (${KEENETIC_PROXY_NAME}) уже существует в KeeneticOS (маршруты сохранены).${NC}"
+        echo "Синхронизация MTU (${TARGET_MTU}) и включение интерфейса ${KEENETIC_PROXY_NAME}..."
+        curl -4 -s -d '[{"interface": {"name": "'${KEENETIC_PROXY_NAME}'", "ip": {"mtu": '${TARGET_MTU}'}, "up": true}}, {"system": {"configuration": {"save": true}}}]' "http://127.0.0.1:79/rci/" > /dev/null 2>&1
     else
-        echo "Интеграция с KeeneticOS API (регистрация интерфейса)..."
+        echo "Интеграция с KeeneticOS API (регистрация интерфейса с MTU ${TARGET_MTU})..."
         API_DATA='[{
             "interface": {
                 "name": "'${KEENETIC_PROXY_NAME}'",
                 "description": "'${KEENETIC_PROXY_DESC}'",
+                "ip": { "mtu": '${TARGET_MTU}' },
                 "proxy": {
                     "protocol": { "proto": "'${PROXY_PROTO}'" },
                     "upstream": { "host": "'${PROXY_LOCAL_IP}'", "port": "'${PROXY_LOCAL_PORT_SOCKS}'" },
@@ -543,12 +561,18 @@ EOF
         }]'
 
         curl -4 -s -d "${API_DATA}" "http://127.0.0.1:79/rci/" > /dev/null 2>&1
-        curl -4 -s -d '[{"interface": {"name": "'${KEENETIC_PROXY_NAME}'", "up": true}}]' "http://127.0.0.1:79/rci/" > /dev/null 2>&1
+        curl -4 -s -d '[{"interface": {"name": "'${KEENETIC_PROXY_NAME}'", "ip": {"mtu": '${TARGET_MTU}'}, "up": true}}, {"system": {"configuration": {"save": true}}}]' "http://127.0.0.1:79/rci/" > /dev/null 2>&1
 
-        echo -e "${GREEN}Интерфейс '${KEENETIC_PROXY_DESC}' (${KEENETIC_PROXY_NAME}) успешно зарегистрирован в KeeneticOS!${NC}"
+        echo -e "${GREEN}Интерфейс '${KEENETIC_PROXY_DESC}' (${KEENETIC_PROXY_NAME}) успешно зарегистрирован в KeeneticOS (MTU: ${TARGET_MTU})!${NC}"
         echo -e "${YELLOW}Чтобы переключить маршруты Kvas на этот туннель, выполните:${NC}"
         echo -e "  ${BLUE}kvas vpn set${NC}"
         echo ""
+    fi
+
+    # Применение MTU интерфейса и TCPMSS clamp
+    MTU_HOOK="/opt/apps/kvas-awg/etc/ndm/ifstatechanged.d/010-awg-mtu.sh"
+    if [ -x "$MTU_HOOK" ]; then
+        "$MTU_HOOK" >/dev/null 2>&1 &
     fi
 
     run_test
@@ -562,7 +586,7 @@ uninstall_packet() {
     curl -4 -s -d '[{"interface": { "name": "'${KEENETIC_PROXY_NAME}'","no": true },"system": {"configuration": {"save": true}}}]' "http://127.0.0.1:79/rci/" > /dev/null 2>&1
 
     echo "Удаление симлинков и файлов пакета..."
-    rm -f /opt/bin/kvas-awg /opt/bin/wireproxy "$SYSTEM_INIT_PATH" "$PIDFILE" "$LOGFILE"
+    rm -f /opt/bin/kvas-awg /opt/bin/wireproxy /opt/etc/ndm/ifstatechanged.d/010-awg-mtu.sh "$SYSTEM_INIT_PATH" "$PIDFILE" "$LOGFILE"
     rm -rf "$FINAL_CONFIG_DIR" "$APP_BASE"
     echo -e "${GREEN}Пакет kvas-awg успешно и полностью удален.${NC}"
 }
