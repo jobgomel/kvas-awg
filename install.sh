@@ -179,6 +179,8 @@ chmod +x "${APPS_DIR}/etc/ndm/"*.sh "${APPS_DIR}/etc/ndm/ifstatechanged.d/"*.sh 
 
 ln -sf "${APPS_DIR}/bin/manager.sh" /opt/bin/kvas-awg
 if [ -f "${APPS_DIR}/etc/ndm/ifstatechanged.d/010-awg-mtu.sh" ]; then
+    chmod +x "${APPS_DIR}/etc/ndm/ifstatechanged.d/010-awg-mtu.sh"
+    mkdir -p /opt/etc/ndm/ifstatechanged.d
     ln -sf "${APPS_DIR}/etc/ndm/ifstatechanged.d/010-awg-mtu.sh" /opt/etc/ndm/ifstatechanged.d/010-awg-mtu.sh
 fi
 

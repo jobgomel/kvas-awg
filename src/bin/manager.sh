@@ -569,9 +569,15 @@ EOF
         echo ""
     fi
 
-    # Применение MTU интерфейса и TCPMSS clamp
+    # Применение MTU интерфейса и TCPMSS clamp (с самовосстановлением хука)
     MTU_HOOK="/opt/apps/kvas-awg/etc/ndm/ifstatechanged.d/010-awg-mtu.sh"
-    if [ -x "$MTU_HOOK" ]; then
+    SYSTEM_HOOK="/opt/etc/ndm/ifstatechanged.d/010-awg-mtu.sh"
+    if [ -f "$MTU_HOOK" ]; then
+        chmod +x "$MTU_HOOK" 2>/dev/null || true
+        if [ ! -L "$SYSTEM_HOOK" ] && [ ! -f "$SYSTEM_HOOK" ]; then
+            mkdir -p /opt/etc/ndm/ifstatechanged.d 2>/dev/null || true
+            ln -sf "$MTU_HOOK" "$SYSTEM_HOOK" 2>/dev/null || true
+        fi
         "$MTU_HOOK" >/dev/null 2>&1 &
     fi
 
@@ -643,20 +649,26 @@ update_packet() {
         fi
     fi
 
-    INSTALL_URL="https://raw.githubusercontent.com/${REPO}/main/install.sh"
-    API_URL="https://api.github.com/repos/${REPO}/contents/install.sh"
+    REF="${TARGET:-main}"
+    [ "$REF" = "latest" ] && REF="main"
+
+    INSTALL_URL="https://raw.githubusercontent.com/${REPO}/${REF}/install.sh"
+    API_URL="https://api.github.com/repos/${REPO}/contents/install.sh?ref=${REF}"
     TMP_INSTALLER="/tmp/kvas_install_$$.sh"
 
-    echo "Загрузка актуального скрипта установки с GitHub..."
+    echo "Загрузка актуального скрипта установки с GitHub (${REF})..."
     DOWNLOADED=0
 
-    # 1. Прямая загрузка через IPv4 (защита от неработающего IPv6 на роутере)
+    # 1. Прямая загрузка через IPv4 (для целевой ветки/релиза)
     if curl -4 -sL -f --connect-timeout 10 -o "$TMP_INSTALLER" "$INSTALL_URL" 2>/dev/null; then
         DOWNLOADED=1
     # 2. Резервный источник через GitHub API (raw-заголовок)
     elif curl -4 -sL -f --connect-timeout 10 -H "Accept: application/vnd.github.raw" -o "$TMP_INSTALLER" "$API_URL" 2>/dev/null; then
         DOWNLOADED=1
-    # 3. Резерв через локальный туннель wireproxy (если служба активна)
+    # 3. Fallback на ветку main (если запрошенный тег/ветка не содержит отдельный install.sh)
+    elif [ "$REF" != "main" ] && curl -4 -sL -f --connect-timeout 10 -o "$TMP_INSTALLER" "https://raw.githubusercontent.com/${REPO}/main/install.sh" 2>/dev/null; then
+        DOWNLOADED=1
+    # 4. Резерв через локальный туннель wireproxy (если служба активна)
     elif [ -n "${PROXY_LOCAL_PORT_SOCKS}" ] && curl -sL -f --connect-timeout 10 -x "socks5h://${PROXY_LOCAL_IP:-127.0.0.1}:${PROXY_LOCAL_PORT_SOCKS}" -o "$TMP_INSTALLER" "$INSTALL_URL" 2>/dev/null; then
         DOWNLOADED=1
     fi
