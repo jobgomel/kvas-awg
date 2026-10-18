@@ -375,6 +375,10 @@ install_wireproxy() {
 add_config() {
     INPUT="$1"
 
+    # Безопасные права доступа (0600) при создании файлов с приватными ключами
+    OLD_UMASK=$(umask)
+    umask 077
+
     # 1. Если аргумент не передан или передан '-' — читаем через read / stdin
     # Это полностью обходит 512-байтный лимит интерактивной строки ash
     if [ -z "$INPUT" ] || [ "$INPUT" = "-" ]; then
@@ -485,6 +489,8 @@ add_config() {
     echo -e "${GREEN}Конфигурация AmneziaWG 3.1 успешно распознана!${NC}"
 
     mkdir -p "$FINAL_CONFIG_DIR"
+    touch "$FINAL_CONFIG_PATH"
+    chmod 600 "$FINAL_CONFIG_PATH"
 
     # 6. Удаляем существующие блоки [Socks5] / [Http], очищаем от CRLF (\r)
     tr -d '\r' < "$TMP_DECODED" | awk '
@@ -504,6 +510,7 @@ BindAddress = ${PROXY_LOCAL_IP}:${PROXY_LOCAL_PORT_SOCKS}
 EOF
 
     chmod 600 "$FINAL_CONFIG_PATH"
+    umask "$OLD_UMASK" 2>/dev/null || true
     echo -e "${GREEN}Рабочий файл конфигурации готов: $FINAL_CONFIG_PATH${NC}"
 
     # 8. Активация автозапуска службы
