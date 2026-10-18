@@ -9,6 +9,7 @@ ENV_FILE="/opt/apps/kvas-awg/etc/conf/env.sh"
 WATCHDOG_PROG="/opt/apps/kvas-awg/etc/ndm/watchdog.sh"
 WATCHDOG_PID="/var/run/wireproxy-watchdog.pid"
 ACTIVE_FLAG="/var/run/wireproxy.active"
+MTU_HOOK="/opt/apps/kvas-awg/etc/ndm/ifstatechanged.d/010-awg-mtu.sh"
 
 # Подключаем параметры конфигурации среды и лимиты ресурсов
 [ -f "$ENV_FILE" ] && . "$ENV_FILE"
@@ -27,11 +28,14 @@ case "$1" in
         if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
             echo "AmneziaWG (wireproxy) уже запущен."
         else
+            LOG_ARGS=""
+            [ "${LOG_LEVEL:-silent}" != "debug" ] && LOG_ARGS="-s"
+
             GOMAXPROCS="${GOMAXPROCS:-2}" \
             GOMEMLIMIT="${GOMEMLIMIT:-24MiB}" \
             GOGC="${GOGC:-25}" \
             GODEBUG="${GODEBUG:-madvdontneed=1}" \
-            $PROG -c "$CONF" > "$LOGFILE" 2>&1 &
+            $PROG $LOG_ARGS -c "$CONF" >> "$LOGFILE" 2>&1 &
             echo $! > "$PIDFILE"
             touch "$ACTIVE_FLAG"
             echo "AmneziaWG (wireproxy) успешно запущен."
@@ -44,6 +48,17 @@ case "$1" in
                 echo $! > "$WATCHDOG_PID"
             fi
         fi
+
+        # Применение MTU интерфейса и TCPMSS clamp (с самовосстановлением хука)
+        SYSTEM_HOOK="/opt/etc/ndm/ifstatechanged.d/010-awg-mtu.sh"
+        if [ -f "$MTU_HOOK" ]; then
+            chmod +x "$MTU_HOOK" 2>/dev/null || true
+            if [ ! -L "$SYSTEM_HOOK" ] && [ ! -f "$SYSTEM_HOOK" ]; then
+                mkdir -p /opt/etc/ndm/ifstatechanged.d 2>/dev/null || true
+                ln -sf "$MTU_HOOK" "$SYSTEM_HOOK" 2>/dev/null || true
+            fi
+            "$MTU_HOOK" >/dev/null 2>&1 &
+        fi
         ;;
     stop)
         # 1. Принудительная остановка мониторинга
@@ -52,7 +67,8 @@ case "$1" in
             kill "$(cat "$WATCHDOG_PID")" 2>/dev/null
             rm -f "$WATCHDOG_PID"
         fi
-        killall watchdog.sh 2>/dev/null
+        EXTRA_PIDS=$(ps -w 2>/dev/null | grep "[k]vas-awg/etc/ndm/watchdog.sh" | awk '{print $1}')
+        [ -n "$EXTRA_PIDS" ] && kill $EXTRA_PIDS 2>/dev/null || true
 
         # 2. Остановка основного демона wireproxy
         if [ -f "$PIDFILE" ]; then

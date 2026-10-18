@@ -45,11 +45,16 @@ SYSTEM_INIT_PATH="/opt/etc/init.d/S99awg"
 PIDFILE="/var/run/wireproxy.pid"
 LOGFILE="/var/log/wireproxy.log"
 
-detect_optimal_profile() {
+detect_hardware() {
+    [ -n "$TOTAL_MEM_MB" ] && [ -n "$CPUS" ] && return
     TOTAL_MEM_KB=$(grep -i '^MemTotal:' /proc/meminfo 2>/dev/null | awk '{print $2}')
     TOTAL_MEM_MB=$(( ${TOTAL_MEM_KB:-0} / 1024 ))
     CPUS=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)
     [ -z "$CPUS" ] || [ "$CPUS" -lt 1 ] && CPUS=1
+}
+
+detect_optimal_profile() {
+    detect_hardware
 
     # Skipper 4G, Extra, бюджетные роутеры (<= 256MB RAM или 1 ядро)
     if [ "$TOTAL_MEM_MB" -gt 0 ] && [ "$TOTAL_MEM_MB" -le 270 ] || [ "$CPUS" -le 1 ]; then
@@ -77,11 +82,7 @@ manage_mode() {
     TARGET_MODE="$1"
 
     if [ -z "$TARGET_MODE" ]; then
-        TOTAL_MEM_KB=$(grep -i '^MemTotal:' /proc/meminfo 2>/dev/null | awk '{print $2}')
-        TOTAL_MEM_MB=$(( ${TOTAL_MEM_KB:-0} / 1024 ))
-        CPUS=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)
-        [ -z "$CPUS" ] || [ "$CPUS" -lt 1 ] && CPUS=1
-
+        detect_hardware
         SUGGESTED=$(detect_optimal_profile)
 
         echo "=== Управление профилями ресурсов wireproxy ==="
@@ -129,8 +130,7 @@ manage_mode() {
             ;;
         3|perf|performance|max)
             NEW_PROFILE="perf"
-            CPUS=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)
-            [ -z "$CPUS" ] || [ "$CPUS" -lt 1 ] && CPUS=1
+            detect_hardware
             if [ "$CPUS" -le 2 ]; then
                 NEW_MAXPROCS=2
             else
@@ -211,7 +211,14 @@ show_status() {
         echo -e "Конфигурация: ${GREEN}Активна${NC} ($FINAL_CONFIG_PATH)"
         ENDPOINT=$(grep -i '^[[:space:]]*Endpoint' "$FINAL_CONFIG_PATH" | head -n 1 | awk -F'=' '{print $2}' | tr -d ' 
 ')
-        [ -n "$ENDPOINT" ] && echo " -> Сервер Endpoint: $ENDPOINT"
+        CFG_MTU=$(grep -i '^[[:space:]]*MTU' "$FINAL_CONFIG_PATH" | head -n 1 | awk -F'=' '{print $2}' | tr -d ' \r\n\t')
+        [ -n "$CFG_MTU" ] && echo " -> MTU туннеля: $CFG_MTU"
+        DEV=$(grep -E "^${KEENETIC_PROXY_NAME}\|" /opt/etc/inface_equals 2>/dev/null | cut -d'|' -f2)
+        [ -z "$DEV" ] && DEV=$(echo "${KEENETIC_PROXY_NAME}" | sed 's/Proxy/t2s/')
+        IFACE_MTU=""
+        [ -n "$DEV" ] && [ -r "/sys/class/net/$DEV/mtu" ] && IFACE_MTU=$(cat "/sys/class/net/$DEV/mtu" 2>/dev/null)
+        [ -z "$IFACE_MTU" ] && IFACE_MTU=$(curl -4 -s "http://127.0.0.1:79/rci/show/interface/${KEENETIC_PROXY_NAME}" 2>/dev/null | grep -oE '"mtu": *[0-9]+' | head -n 1 | awk '{print $2}')
+        [ -n "$IFACE_MTU" ] && echo " -> MTU интерфейса ${KEENETIC_PROXY_NAME} (${DEV}): $IFACE_MTU"
         AWG_PARAMS=$(grep -i -E '^[[:space:]]*(HeaderProtectionKey|ContentPaddingAddition|RandomTrailers|Jc|S1|H1)' "$FINAL_CONFIG_PATH" | tr -d ' ' | tr '\n' ', ' | sed 's/,$//')
         [ -n "$AWG_PARAMS" ] && echo " -> Параметры обфускации: $AWG_PARAMS"
     else
@@ -252,8 +259,13 @@ install_wireproxy() {
         *armv7*|*armv6*|*arm*)        BINARY_ARCH="arm" ;;
         *mipsle*|*mipsel*)            BINARY_ARCH="mipsle" ;;
         *mips*)
-            # Подавляющее большинство MIPS Keenetic (MT7621, MT7628) - mipsel (little-endian)
-            BINARY_ARCH="mipsle"
+            # Проверяем порядок байтов (ELF header: 5-й байт 01 = LSB/little-endian, 02 = MSB/big-endian)
+            ENDIAN_BYTE=$(dd if=/bin/sh bs=1 count=1 skip=5 2>/dev/null | od -b 2>/dev/null | awk 'NR==1 {print $2}')
+            if [ "$ENDIAN_BYTE" = "002" ] || [ "$ENDIAN_BYTE" = "2" ]; then
+                BINARY_ARCH="mips"
+            else
+                BINARY_ARCH="mipsle"
+            fi
             ;;
         *x86_64*|*amd64*)             BINARY_ARCH="amd64" ;;
         *i?86*|*x86*)                 BINARY_ARCH="386" ;;
@@ -304,8 +316,32 @@ install_wireproxy() {
     chmod +x "$TMP_BIN"
 
     # Проверка совместимости бинарника с текущей системой
+    IS_COMPATIBLE=0
     if "$TMP_BIN" --help >/dev/null 2>&1 || "$TMP_BIN" -h >/dev/null 2>&1; then
-        echo -e "${GREEN}Бинарный файл wireproxy успешно проверен на совместимость.${NC}"
+        IS_COMPATIBLE=1
+    elif [ "$BINARY_ARCH" = "mipsle" ] || [ "$BINARY_ARCH" = "mips" ]; then
+        # Если MIPS архитектура не подошла, пробуем альтернативный порядок байтов (mipsle <-> mips)
+        ALT_ARCH="mips"
+        [ "$BINARY_ARCH" = "mips" ] && ALT_ARCH="mipsle"
+
+        echo -e "${YELLOW}Предупреждение: Сборка ${BINARY_ARCH} не подошла, пробуем альтернативную ${ALT_ARCH}...${NC}"
+        ALT_URL="https://github.com/artem-russkikh/wireproxy-awg/releases/download/${LATEST_VERSION}/wireproxy_linux_${ALT_ARCH}.tar.gz"
+        rm -rf "$TMP_DIR"/*
+        if curl -4 -L -f --connect-timeout 20 -o "$TMP_ARCHIVE" "$ALT_URL" 2>/dev/null && tar -xzf "$TMP_ARCHIVE" -C "$TMP_DIR" 2>/dev/null; then
+            ALT_BIN=$(find "$TMP_DIR" -type f -name "wireproxy" | head -n 1)
+            if [ -n "$ALT_BIN" ] && [ -f "$ALT_BIN" ]; then
+                chmod +x "$ALT_BIN"
+                if "$ALT_BIN" --help >/dev/null 2>&1 || "$ALT_BIN" -h >/dev/null 2>&1; then
+                    TMP_BIN="$ALT_BIN"
+                    BINARY_ARCH="$ALT_ARCH"
+                    IS_COMPATIBLE=1
+                fi
+            fi
+        fi
+    fi
+
+    if [ "$IS_COMPATIBLE" -eq 1 ]; then
+        echo -e "${GREEN}Бинарный файл wireproxy успешно проверен на совместимость (${BINARY_ARCH}).${NC}"
     else
         echo -e "${RED}Ошибка: Скачанный файл wireproxy не может быть запущен на этом ядре/архитектуре.${NC}"
         rm -rf "$TMP_DIR"
@@ -337,14 +373,18 @@ install_wireproxy() {
     else
         echo ""
         echo -e "${YELLOW}Для настройки подключения выполните:${NC}"
-        echo -e "  ${BLUE}kvas-awg add "vpn://W0ludGVyZmF..."${NC}"
+        echo -e "  ${BLUE}kvas-awg add \"vpn://W0ludGVyZmF...\"${NC}"
         echo -e "  или импортируйте файл: ${BLUE}kvas-awg add /opt/etc/awg/client.conf${NC}"
-        echo -e "${RED}Важно:${NC} Ссылку обязательно оборачивать в двойные кавычки ${GREEN}""${NC}!"
+        echo -e "${RED}Важно:${NC} Ссылку обязательно оборачивать в двойные кавычки ${GREEN}\"\"${NC}!"
     fi
 }
 
 add_config() {
     INPUT="$1"
+
+    # Безопасные права доступа (0600) при создании файлов с приватными ключами
+    OLD_UMASK=$(umask)
+    umask 077
 
     # 1. Если аргумент не передан или передан '-' — читаем через read / stdin
     # Это полностью обходит 512-байтный лимит интерактивной строки ash
@@ -456,6 +496,8 @@ add_config() {
     echo -e "${GREEN}Конфигурация AmneziaWG 3.1 успешно распознана!${NC}"
 
     mkdir -p "$FINAL_CONFIG_DIR"
+    touch "$FINAL_CONFIG_PATH"
+    chmod 600 "$FINAL_CONFIG_PATH"
 
     # 6. Удаляем существующие блоки [Socks5] / [Http], очищаем от CRLF (\r)
     tr -d '\r' < "$TMP_DECODED" | awk '
@@ -475,6 +517,7 @@ BindAddress = ${PROXY_LOCAL_IP}:${PROXY_LOCAL_PORT_SOCKS}
 EOF
 
     chmod 600 "$FINAL_CONFIG_PATH"
+    umask "$OLD_UMASK" 2>/dev/null || true
     echo -e "${GREEN}Рабочий файл конфигурации готов: $FINAL_CONFIG_PATH${NC}"
 
     # 8. Активация автозапуска службы
@@ -485,18 +528,29 @@ EOF
     "$SYSTEM_INIT_PATH" restart
     sleep 2
 
-    # 9. Интеграция с KeeneticOS RCI API
-    IFACE_INFO=$(curl -s "localhost:79/rci/show/interface/${KEENETIC_PROXY_NAME}" 2>/dev/null)
-    if echo "$IFACE_INFO" | grep -q "\"id\": \"${KEENETIC_PROXY_NAME}\""; then
-        echo -e "${GREEN}Интерфейс '${KEENETIC_PROXY_DESC}' (${KEENETIC_PROXY_NAME}) уже существует в KeeneticOS (создание пропущено, маршруты сохранены).${NC}"
-        # Убеждаемся, что интерфейс включен (up)
-        curl -s -d '[{"interface": {"name": "'${KEENETIC_PROXY_NAME}'", "up": true}}]' "localhost:79/rci/" > /dev/null 2>&1
+    # 9. Определение MTU для виртуального интерфейса KeeneticOS
+    PARSED_MTU=$(grep -Ei '^[[:space:]]*MTU[[:space:]]*=' "$FINAL_CONFIG_PATH" | head -n 1 | awk -F '=' '{print $2}' | tr -d ' \r\n\t')
+    if [ -n "$PARSED_MTU" ] && [ "$PARSED_MTU" -ge 576 ] 2>/dev/null && [ "$PARSED_MTU" -le 9000 ] 2>/dev/null; then
+        TARGET_MTU="$PARSED_MTU"
+        echo -e "Определен MTU из конфигурации AWG: ${GREEN}${TARGET_MTU}${NC}"
     else
-        echo "Интеграция с KeeneticOS API (регистрация интерфейса)..."
+        TARGET_MTU="${DEFAULT_PROXY_MTU:-1376}"
+        echo -e "MTU не указан в конфигурации AWG, используется значение по умолчанию: ${YELLOW}${TARGET_MTU}${NC}"
+    fi
+
+    # 10. Интеграция с KeeneticOS RCI API
+    IFACE_INFO=$(curl -4 -s "http://127.0.0.1:79/rci/show/interface/${KEENETIC_PROXY_NAME}" 2>/dev/null)
+    if echo "$IFACE_INFO" | grep -q "\"id\": \"${KEENETIC_PROXY_NAME}\""; then
+        echo -e "${GREEN}Интерфейс '${KEENETIC_PROXY_DESC}' (${KEENETIC_PROXY_NAME}) уже существует в KeeneticOS (маршруты сохранены).${NC}"
+        echo "Синхронизация MTU (${TARGET_MTU}) и включение интерфейса ${KEENETIC_PROXY_NAME}..."
+        curl -4 -s -d '[{"interface": {"name": "'${KEENETIC_PROXY_NAME}'", "ip": {"mtu": '${TARGET_MTU}'}, "up": true}}, {"system": {"configuration": {"save": true}}}]' "http://127.0.0.1:79/rci/" > /dev/null 2>&1
+    else
+        echo "Интеграция с KeeneticOS API (регистрация интерфейса с MTU ${TARGET_MTU})..."
         API_DATA='[{
             "interface": {
                 "name": "'${KEENETIC_PROXY_NAME}'",
                 "description": "'${KEENETIC_PROXY_DESC}'",
+                "ip": { "mtu": '${TARGET_MTU}' },
                 "proxy": {
                     "protocol": { "proto": "'${PROXY_PROTO}'" },
                     "upstream": { "host": "'${PROXY_LOCAL_IP}'", "port": "'${PROXY_LOCAL_PORT_SOCKS}'" },
@@ -506,13 +560,25 @@ EOF
             "system": { "configuration": { "save": true } }
         }]'
 
-        curl -s -d "${API_DATA}" "localhost:79/rci/" > /dev/null 2>&1
-        curl -s -d '[{"interface": {"name": "'${KEENETIC_PROXY_NAME}'", "up": true}}]' "localhost:79/rci/" > /dev/null 2>&1
+        curl -4 -s -d "${API_DATA}" "http://127.0.0.1:79/rci/" > /dev/null 2>&1
+        curl -4 -s -d '[{"interface": {"name": "'${KEENETIC_PROXY_NAME}'", "ip": {"mtu": '${TARGET_MTU}'}, "up": true}}, {"system": {"configuration": {"save": true}}}]' "http://127.0.0.1:79/rci/" > /dev/null 2>&1
 
-        echo -e "${GREEN}Интерфейс '${KEENETIC_PROXY_DESC}' (${KEENETIC_PROXY_NAME}) успешно зарегистрирован в KeeneticOS!${NC}"
+        echo -e "${GREEN}Интерфейс '${KEENETIC_PROXY_DESC}' (${KEENETIC_PROXY_NAME}) успешно зарегистрирован в KeeneticOS (MTU: ${TARGET_MTU})!${NC}"
         echo -e "${YELLOW}Чтобы переключить маршруты Kvas на этот туннель, выполните:${NC}"
         echo -e "  ${BLUE}kvas vpn set${NC}"
         echo ""
+    fi
+
+    # Применение MTU интерфейса и TCPMSS clamp (с самовосстановлением хука)
+    MTU_HOOK="/opt/apps/kvas-awg/etc/ndm/ifstatechanged.d/010-awg-mtu.sh"
+    SYSTEM_HOOK="/opt/etc/ndm/ifstatechanged.d/010-awg-mtu.sh"
+    if [ -f "$MTU_HOOK" ]; then
+        chmod +x "$MTU_HOOK" 2>/dev/null || true
+        if [ ! -L "$SYSTEM_HOOK" ] && [ ! -f "$SYSTEM_HOOK" ]; then
+            mkdir -p /opt/etc/ndm/ifstatechanged.d 2>/dev/null || true
+            ln -sf "$MTU_HOOK" "$SYSTEM_HOOK" 2>/dev/null || true
+        fi
+        "$MTU_HOOK" >/dev/null 2>&1 &
     fi
 
     run_test
@@ -523,10 +589,10 @@ uninstall_packet() {
     [ -f "$SYSTEM_INIT_PATH" ] && "$SYSTEM_INIT_PATH" stop
 
     echo "Удаление прокси-интерфейса из KeeneticOS..."
-    curl -s -d '[{"interface": { "name": "'${KEENETIC_PROXY_NAME}'","no": true },"system": {"configuration": {"save": true}}}]' "localhost:79/rci/" > /dev/null 2>&1
+    curl -4 -s -d '[{"interface": { "name": "'${KEENETIC_PROXY_NAME}'","no": true },"system": {"configuration": {"save": true}}}]' "http://127.0.0.1:79/rci/" > /dev/null 2>&1
 
     echo "Удаление симлинков и файлов пакета..."
-    rm -f /opt/bin/kvas-awg /opt/bin/wireproxy "$SYSTEM_INIT_PATH" "$PIDFILE" "$LOGFILE"
+    rm -f /opt/bin/kvas-awg /opt/bin/wireproxy /opt/etc/ndm/ifstatechanged.d/010-awg-mtu.sh "$SYSTEM_INIT_PATH" "$PIDFILE" "$LOGFILE"
     rm -rf "$FINAL_CONFIG_DIR" "$APP_BASE"
     echo -e "${GREEN}Пакет kvas-awg успешно и полностью удален.${NC}"
 }
@@ -583,20 +649,26 @@ update_packet() {
         fi
     fi
 
-    INSTALL_URL="https://raw.githubusercontent.com/${REPO}/main/install.sh"
-    API_URL="https://api.github.com/repos/${REPO}/contents/install.sh"
+    REF="${TARGET:-main}"
+    [ "$REF" = "latest" ] && REF="main"
+
+    INSTALL_URL="https://raw.githubusercontent.com/${REPO}/${REF}/install.sh"
+    API_URL="https://api.github.com/repos/${REPO}/contents/install.sh?ref=${REF}"
     TMP_INSTALLER="/tmp/kvas_install_$$.sh"
 
-    echo "Загрузка актуального скрипта установки с GitHub..."
+    echo "Загрузка актуального скрипта установки с GitHub (${REF})..."
     DOWNLOADED=0
 
-    # 1. Прямая загрузка через IPv4 (защита от неработающего IPv6 на роутере)
+    # 1. Прямая загрузка через IPv4 (для целевой ветки/релиза)
     if curl -4 -sL -f --connect-timeout 10 -o "$TMP_INSTALLER" "$INSTALL_URL" 2>/dev/null; then
         DOWNLOADED=1
     # 2. Резервный источник через GitHub API (raw-заголовок)
     elif curl -4 -sL -f --connect-timeout 10 -H "Accept: application/vnd.github.raw" -o "$TMP_INSTALLER" "$API_URL" 2>/dev/null; then
         DOWNLOADED=1
-    # 3. Резерв через локальный туннель wireproxy (если служба активна)
+    # 3. Fallback на ветку main (если запрошенный тег/ветка не содержит отдельный install.sh)
+    elif [ "$REF" != "main" ] && curl -4 -sL -f --connect-timeout 10 -o "$TMP_INSTALLER" "https://raw.githubusercontent.com/${REPO}/main/install.sh" 2>/dev/null; then
+        DOWNLOADED=1
+    # 4. Резерв через локальный туннель wireproxy (если служба активна)
     elif [ -n "${PROXY_LOCAL_PORT_SOCKS}" ] && curl -sL -f --connect-timeout 10 -x "socks5h://${PROXY_LOCAL_IP:-127.0.0.1}:${PROXY_LOCAL_PORT_SOCKS}" -o "$TMP_INSTALLER" "$INSTALL_URL" 2>/dev/null; then
         DOWNLOADED=1
     fi
@@ -610,7 +682,7 @@ update_packet() {
 
     chmod +x "$TMP_INSTALLER"
 
-    INSTALL_TARGET="${TARGET:-latest}"
+    INSTALL_TARGET="${TARGET:-${LATEST_TAG:-latest}}"
     ARGS="$INSTALL_TARGET"
     [ "$FORCE" -eq 1 ] && ARGS="$ARGS --force"
 
