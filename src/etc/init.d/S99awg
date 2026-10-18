@@ -9,6 +9,7 @@ ENV_FILE="/opt/apps/kvas-awg/etc/conf/env.sh"
 WATCHDOG_PROG="/opt/apps/kvas-awg/etc/ndm/watchdog.sh"
 WATCHDOG_PID="/var/run/wireproxy-watchdog.pid"
 ACTIVE_FLAG="/var/run/wireproxy.active"
+MTU_HOOK="/opt/apps/kvas-awg/etc/ndm/ifstatechanged.d/010-awg-mtu.sh"
 
 # Подключаем параметры конфигурации среды и лимиты ресурсов
 [ -f "$ENV_FILE" ] && . "$ENV_FILE"
@@ -46,6 +47,11 @@ case "$1" in
                 "$WATCHDOG_PROG" >/dev/null 2>&1 &
                 echo $! > "$WATCHDOG_PID"
             fi
+        fi
+
+        # Применение MTU интерфейса и TCPMSS clamp
+        if [ -x "$MTU_HOOK" ]; then
+            "$MTU_HOOK" >/dev/null 2>&1 &
         fi
         ;;
     stop)

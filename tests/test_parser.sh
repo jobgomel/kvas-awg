@@ -301,6 +301,52 @@ assert_eq "perf" "$(detect_profile_mock 768 4)" "768MB RAM + 4 CPU -> perf"
 assert_eq "balanced" "$(detect_profile_mock 512 2)" "512MB RAM + 2 CPU -> balanced"
 
 # --------------------------------------------------------------------------
+# Test 8: MTU extraction and fallback logic
+# --------------------------------------------------------------------------
+echo "Test Group 8: MTU extraction and validation"
+
+extract_mtu() {
+    _conf="$1"
+    _val=$(awk -F '=' '
+        tolower($1) ~ /^[[:space:]]*mtu[[:space:]]*$/ {
+            gsub(/[[:space:]]/, "", $2)
+            print $2
+            exit
+        }
+    ' "$_conf" 2>/dev/null)
+    case "$_val" in
+        ''|*[!0-9]*) echo "${2:-1376}" ;;
+        *) echo "$_val" ;;
+    esac
+}
+
+CONF_WITH_MTU="$TMP_DIR/with_mtu.conf"
+cat << 'EOF' > "$CONF_WITH_MTU"
+[Interface]
+Address = 10.8.0.2/32
+MTU = 1376
+PrivateKey = abc=
+EOF
+
+CONF_NO_MTU="$TMP_DIR/no_mtu.conf"
+cat << 'EOF' > "$CONF_NO_MTU"
+[Interface]
+Address = 10.8.0.2/32
+PrivateKey = abc=
+EOF
+
+CONF_LOWER_MTU="$TMP_DIR/lower_mtu.conf"
+cat << 'EOF' > "$CONF_LOWER_MTU"
+[Interface]
+mtu= 1280 
+PrivateKey = abc=
+EOF
+
+assert_eq "1376" "$(extract_mtu "$CONF_WITH_MTU" 1420)" "Extracts MTU=1376 from config"
+assert_eq "1420" "$(extract_mtu "$CONF_NO_MTU" 1420)" "Uses fallback 1420 when MTU missing"
+assert_eq "1280" "$(extract_mtu "$CONF_LOWER_MTU" 1376)" "Handles lowercase mtu= with spaces"
+
+# --------------------------------------------------------------------------
 # Summary
 # --------------------------------------------------------------------------
 echo ""

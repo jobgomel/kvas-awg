@@ -39,7 +39,7 @@ fi
 echo "=== Установка пакета kvas-awg (AmneziaWG 3.1) ==="
 
 # 2. Создание структуры папок
-mkdir -p "${APPS_DIR}/bin" "${APPS_DIR}/etc/conf" "${APPS_DIR}/etc/init.d" "${APPS_DIR}/etc/ndm" "/opt/etc/awg"
+mkdir -p "${APPS_DIR}/bin" "${APPS_DIR}/etc/conf" "${APPS_DIR}/etc/init.d" "${APPS_DIR}/etc/ndm" "${APPS_DIR}/etc/ndm/ifstatechanged.d" "/opt/etc/awg" "/opt/etc/ndm/ifstatechanged.d"
 
 # Сохраняем существующий env.sh при обновлении
 PRESERVED_ENV=0
@@ -175,9 +175,12 @@ fi
 # 4. Назначение прав и создание системного симлинка
 chmod +x "${APPS_DIR}/bin/manager.sh"
 chmod +x "${APPS_DIR}/etc/init.d/S99awg"
-chmod +x "${APPS_DIR}/etc/ndm/"*.sh 2>/dev/null || true
+chmod +x "${APPS_DIR}/etc/ndm/"*.sh "${APPS_DIR}/etc/ndm/ifstatechanged.d/"*.sh 2>/dev/null || true
 
 ln -sf "${APPS_DIR}/bin/manager.sh" /opt/bin/kvas-awg
+if [ -f "${APPS_DIR}/etc/ndm/ifstatechanged.d/010-awg-mtu.sh" ]; then
+    ln -sf "${APPS_DIR}/etc/ndm/ifstatechanged.d/010-awg-mtu.sh" /opt/etc/ndm/ifstatechanged.d/010-awg-mtu.sh
+fi
 
 # 5. Автоматическая калибровка профиля ресурсов при первичной установке
 if [ "$PRESERVED_ENV" -eq 0 ]; then

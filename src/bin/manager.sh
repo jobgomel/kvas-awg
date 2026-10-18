@@ -213,8 +213,12 @@ show_status() {
 ')
         CFG_MTU=$(grep -i '^[[:space:]]*MTU' "$FINAL_CONFIG_PATH" | head -n 1 | awk -F'=' '{print $2}' | tr -d ' \r\n\t')
         [ -n "$CFG_MTU" ] && echo " -> MTU туннеля: $CFG_MTU"
-        IFACE_MTU=$(curl -s "localhost:79/rci/show/interface/${KEENETIC_PROXY_NAME}" 2>/dev/null | grep -oE '"mtu": *[0-9]+' | head -n 1 | awk '{print $2}')
-        [ -n "$IFACE_MTU" ] && echo " -> MTU интерфейса ${KEENETIC_PROXY_NAME}: $IFACE_MTU"
+        DEV=$(grep -E "^${KEENETIC_PROXY_NAME}\|" /opt/etc/inface_equals 2>/dev/null | cut -d'|' -f2)
+        [ -z "$DEV" ] && DEV=$(echo "${KEENETIC_PROXY_NAME}" | sed 's/Proxy/t2s/')
+        IFACE_MTU=""
+        [ -n "$DEV" ] && [ -r "/sys/class/net/$DEV/mtu" ] && IFACE_MTU=$(cat "/sys/class/net/$DEV/mtu" 2>/dev/null)
+        [ -z "$IFACE_MTU" ] && IFACE_MTU=$(curl -4 -s "http://127.0.0.1:79/rci/show/interface/${KEENETIC_PROXY_NAME}" 2>/dev/null | grep -oE '"mtu": *[0-9]+' | head -n 1 | awk '{print $2}')
+        [ -n "$IFACE_MTU" ] && echo " -> MTU интерфейса ${KEENETIC_PROXY_NAME} (${DEV}): $IFACE_MTU"
         AWG_PARAMS=$(grep -i -E '^[[:space:]]*(HeaderProtectionKey|ContentPaddingAddition|RandomTrailers|Jc|S1|H1)' "$FINAL_CONFIG_PATH" | tr -d ' ' | tr '\n' ', ' | sed 's/,$//')
         [ -n "$AWG_PARAMS" ] && echo " -> Параметры обфускации: $AWG_PARAMS"
     else
@@ -535,11 +539,11 @@ EOF
     fi
 
     # 10. Интеграция с KeeneticOS RCI API
-    IFACE_INFO=$(curl -s "127.0.0.1:79/rci/show/interface/${KEENETIC_PROXY_NAME}" 2>/dev/null)
+    IFACE_INFO=$(curl -4 -s "http://127.0.0.1:79/rci/show/interface/${KEENETIC_PROXY_NAME}" 2>/dev/null)
     if echo "$IFACE_INFO" | grep -q "\"id\": \"${KEENETIC_PROXY_NAME}\""; then
         echo -e "${GREEN}Интерфейс '${KEENETIC_PROXY_DESC}' (${KEENETIC_PROXY_NAME}) уже существует в KeeneticOS (маршруты сохранены).${NC}"
         echo "Синхронизация MTU (${TARGET_MTU}) и включение интерфейса ${KEENETIC_PROXY_NAME}..."
-        curl -s -d '[{"interface": {"name": "'${KEENETIC_PROXY_NAME}'", "ip": {"mtu": '${TARGET_MTU}'}, "up": true}}, {"system": {"configuration": {"save": true}}}]' "127.0.0.1:79/rci/" > /dev/null 2>&1
+        curl -4 -s -d '[{"interface": {"name": "'${KEENETIC_PROXY_NAME}'", "ip": {"mtu": '${TARGET_MTU}'}, "up": true}}, {"system": {"configuration": {"save": true}}}]' "http://127.0.0.1:79/rci/" > /dev/null 2>&1
     else
         echo "Интеграция с KeeneticOS API (регистрация интерфейса с MTU ${TARGET_MTU})..."
         API_DATA='[{
@@ -556,13 +560,19 @@ EOF
             "system": { "configuration": { "save": true } }
         }]'
 
-        curl -s -d "${API_DATA}" "127.0.0.1:79/rci/" > /dev/null 2>&1
-        curl -s -d '[{"interface": {"name": "'${KEENETIC_PROXY_NAME}'", "ip": {"mtu": '${TARGET_MTU}'}, "up": true}}, {"system": {"configuration": {"save": true}}}]' "127.0.0.1:79/rci/" > /dev/null 2>&1
+        curl -4 -s -d "${API_DATA}" "http://127.0.0.1:79/rci/" > /dev/null 2>&1
+        curl -4 -s -d '[{"interface": {"name": "'${KEENETIC_PROXY_NAME}'", "ip": {"mtu": '${TARGET_MTU}'}, "up": true}}, {"system": {"configuration": {"save": true}}}]' "http://127.0.0.1:79/rci/" > /dev/null 2>&1
 
         echo -e "${GREEN}Интерфейс '${KEENETIC_PROXY_DESC}' (${KEENETIC_PROXY_NAME}) успешно зарегистрирован в KeeneticOS (MTU: ${TARGET_MTU})!${NC}"
         echo -e "${YELLOW}Чтобы переключить маршруты Kvas на этот туннель, выполните:${NC}"
         echo -e "  ${BLUE}kvas vpn set${NC}"
         echo ""
+    fi
+
+    # Применение MTU интерфейса и TCPMSS clamp
+    MTU_HOOK="/opt/apps/kvas-awg/etc/ndm/ifstatechanged.d/010-awg-mtu.sh"
+    if [ -x "$MTU_HOOK" ]; then
+        "$MTU_HOOK" >/dev/null 2>&1 &
     fi
 
     run_test
@@ -576,7 +586,7 @@ uninstall_packet() {
     curl -4 -s -d '[{"interface": { "name": "'${KEENETIC_PROXY_NAME}'","no": true },"system": {"configuration": {"save": true}}}]' "http://127.0.0.1:79/rci/" > /dev/null 2>&1
 
     echo "Удаление симлинков и файлов пакета..."
-    rm -f /opt/bin/kvas-awg /opt/bin/wireproxy "$SYSTEM_INIT_PATH" "$PIDFILE" "$LOGFILE"
+    rm -f /opt/bin/kvas-awg /opt/bin/wireproxy /opt/etc/ndm/ifstatechanged.d/010-awg-mtu.sh "$SYSTEM_INIT_PATH" "$PIDFILE" "$LOGFILE"
     rm -rf "$FINAL_CONFIG_DIR" "$APP_BASE"
     echo -e "${GREEN}Пакет kvas-awg успешно и полностью удален.${NC}"
 }
