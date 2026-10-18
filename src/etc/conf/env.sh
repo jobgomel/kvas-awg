@@ -18,6 +18,9 @@ GOMEMLIMIT="24MiB"
 GOGC=25
 GODEBUG="madvdontneed=1"
 
+# Уровень логирования wireproxy (silent | debug)
+LOG_LEVEL="silent"
+
 # Параметры Keenetic RCI API
 KEENETIC_PROXY_NAME="Proxy42"
 KEENETIC_PROXY_DESC="Kvas-proxy-awg"

@@ -27,11 +27,14 @@ case "$1" in
         if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
             echo "AmneziaWG (wireproxy) уже запущен."
         else
+            LOG_ARGS=""
+            [ "${LOG_LEVEL:-silent}" != "debug" ] && LOG_ARGS="-s"
+
             GOMAXPROCS="${GOMAXPROCS:-2}" \
             GOMEMLIMIT="${GOMEMLIMIT:-24MiB}" \
             GOGC="${GOGC:-25}" \
             GODEBUG="${GODEBUG:-madvdontneed=1}" \
-            $PROG -c "$CONF" > "$LOGFILE" 2>&1 &
+            $PROG $LOG_ARGS -c "$CONF" >> "$LOGFILE" 2>&1 &
             echo $! > "$PIDFILE"
             touch "$ACTIVE_FLAG"
             echo "AmneziaWG (wireproxy) успешно запущен."
