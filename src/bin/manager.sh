@@ -45,11 +45,16 @@ SYSTEM_INIT_PATH="/opt/etc/init.d/S99awg"
 PIDFILE="/var/run/wireproxy.pid"
 LOGFILE="/var/log/wireproxy.log"
 
-detect_optimal_profile() {
+detect_hardware() {
+    [ -n "$TOTAL_MEM_MB" ] && [ -n "$CPUS" ] && return
     TOTAL_MEM_KB=$(grep -i '^MemTotal:' /proc/meminfo 2>/dev/null | awk '{print $2}')
     TOTAL_MEM_MB=$(( ${TOTAL_MEM_KB:-0} / 1024 ))
     CPUS=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)
     [ -z "$CPUS" ] || [ "$CPUS" -lt 1 ] && CPUS=1
+}
+
+detect_optimal_profile() {
+    detect_hardware
 
     # Skipper 4G, Extra, бюджетные роутеры (<= 256MB RAM или 1 ядро)
     if [ "$TOTAL_MEM_MB" -gt 0 ] && [ "$TOTAL_MEM_MB" -le 270 ] || [ "$CPUS" -le 1 ]; then
@@ -77,11 +82,7 @@ manage_mode() {
     TARGET_MODE="$1"
 
     if [ -z "$TARGET_MODE" ]; then
-        TOTAL_MEM_KB=$(grep -i '^MemTotal:' /proc/meminfo 2>/dev/null | awk '{print $2}')
-        TOTAL_MEM_MB=$(( ${TOTAL_MEM_KB:-0} / 1024 ))
-        CPUS=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)
-        [ -z "$CPUS" ] || [ "$CPUS" -lt 1 ] && CPUS=1
-
+        detect_hardware
         SUGGESTED=$(detect_optimal_profile)
 
         echo "=== Управление профилями ресурсов wireproxy ==="
@@ -129,8 +130,7 @@ manage_mode() {
             ;;
         3|perf|performance|max)
             NEW_PROFILE="perf"
-            CPUS=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)
-            [ -z "$CPUS" ] || [ "$CPUS" -lt 1 ] && CPUS=1
+            detect_hardware
             if [ "$CPUS" -le 2 ]; then
                 NEW_MAXPROCS=2
             else
@@ -366,9 +366,9 @@ install_wireproxy() {
     else
         echo ""
         echo -e "${YELLOW}Для настройки подключения выполните:${NC}"
-        echo -e "  ${BLUE}kvas-awg add "vpn://W0ludGVyZmF..."${NC}"
+        echo -e "  ${BLUE}kvas-awg add \"vpn://W0ludGVyZmF...\"${NC}"
         echo -e "  или импортируйте файл: ${BLUE}kvas-awg add /opt/etc/awg/client.conf${NC}"
-        echo -e "${RED}Важно:${NC} Ссылку обязательно оборачивать в двойные кавычки ${GREEN}""${NC}!"
+        echo -e "${RED}Важно:${NC} Ссылку обязательно оборачивать в двойные кавычки ${GREEN}\"\"${NC}!"
     fi
 }
 
