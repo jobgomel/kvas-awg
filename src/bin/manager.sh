@@ -252,8 +252,13 @@ install_wireproxy() {
         *armv7*|*armv6*|*arm*)        BINARY_ARCH="arm" ;;
         *mipsle*|*mipsel*)            BINARY_ARCH="mipsle" ;;
         *mips*)
-            # Подавляющее большинство MIPS Keenetic (MT7621, MT7628) - mipsel (little-endian)
-            BINARY_ARCH="mipsle"
+            # Проверяем порядок байтов (ELF header: 5-й байт 01 = LSB/little-endian, 02 = MSB/big-endian)
+            ENDIAN_BYTE=$(dd if=/bin/sh bs=1 count=1 skip=5 2>/dev/null | od -b 2>/dev/null | awk 'NR==1 {print $2}')
+            if [ "$ENDIAN_BYTE" = "002" ] || [ "$ENDIAN_BYTE" = "2" ]; then
+                BINARY_ARCH="mips"
+            else
+                BINARY_ARCH="mipsle"
+            fi
             ;;
         *x86_64*|*amd64*)             BINARY_ARCH="amd64" ;;
         *i?86*|*x86*)                 BINARY_ARCH="386" ;;
@@ -304,8 +309,32 @@ install_wireproxy() {
     chmod +x "$TMP_BIN"
 
     # Проверка совместимости бинарника с текущей системой
+    IS_COMPATIBLE=0
     if "$TMP_BIN" --help >/dev/null 2>&1 || "$TMP_BIN" -h >/dev/null 2>&1; then
-        echo -e "${GREEN}Бинарный файл wireproxy успешно проверен на совместимость.${NC}"
+        IS_COMPATIBLE=1
+    elif [ "$BINARY_ARCH" = "mipsle" ] || [ "$BINARY_ARCH" = "mips" ]; then
+        # Если MIPS архитектура не подошла, пробуем альтернативный порядок байтов (mipsle <-> mips)
+        ALT_ARCH="mips"
+        [ "$BINARY_ARCH" = "mips" ] && ALT_ARCH="mipsle"
+
+        echo -e "${YELLOW}Предупреждение: Сборка ${BINARY_ARCH} не подошла, пробуем альтернативную ${ALT_ARCH}...${NC}"
+        ALT_URL="https://github.com/artem-russkikh/wireproxy-awg/releases/download/${LATEST_VERSION}/wireproxy_linux_${ALT_ARCH}.tar.gz"
+        rm -rf "$TMP_DIR"/*
+        if curl -4 -L -f --connect-timeout 20 -o "$TMP_ARCHIVE" "$ALT_URL" 2>/dev/null && tar -xzf "$TMP_ARCHIVE" -C "$TMP_DIR" 2>/dev/null; then
+            ALT_BIN=$(find "$TMP_DIR" -type f -name "wireproxy" | head -n 1)
+            if [ -n "$ALT_BIN" ] && [ -f "$ALT_BIN" ]; then
+                chmod +x "$ALT_BIN"
+                if "$ALT_BIN" --help >/dev/null 2>&1 || "$ALT_BIN" -h >/dev/null 2>&1; then
+                    TMP_BIN="$ALT_BIN"
+                    BINARY_ARCH="$ALT_ARCH"
+                    IS_COMPATIBLE=1
+                fi
+            fi
+        fi
+    fi
+
+    if [ "$IS_COMPATIBLE" -eq 1 ]; then
+        echo -e "${GREEN}Бинарный файл wireproxy успешно проверен на совместимость (${BINARY_ARCH}).${NC}"
     else
         echo -e "${RED}Ошибка: Скачанный файл wireproxy не может быть запущен на этом ядре/архитектуре.${NC}"
         rm -rf "$TMP_DIR"
