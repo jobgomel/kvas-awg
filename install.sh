@@ -145,60 +145,15 @@ else
     rm -rf "$TMP_DIR"
 fi
 
-# Синхронизируем пользовательские настройки из предыдущей установки с новым env.sh
-if [ "$PRESERVED_ENV" -eq 1 ] && [ -f "$TMP_ENV" ]; then
-    echo "Синхронизация пользовательских настроек (env.sh)..."
-    TARGET_ENV="${APPS_DIR}/etc/conf/env.sh"
-    if [ -f "$TARGET_ENV" ]; then
-        while IFS= read -r line || [ -n "$line" ]; do
-            case "$line" in
-                \#*|"") continue ;;
-                [A-Za-z_][A-Za-z0-9_]*=*)
-                    key="${line%%=*}"
-                    key=$(echo "$key" | tr -d " \t")
-                    val="${line#*=}"
-                    if grep -q "^[[:space:]]*${key}=" "$TARGET_ENV"; then
-                        esc_val=$(echo "$val" | sed -e "s/[|&]/\\\\&/g")
-                        sed -i "s|^[[:space:]]*${key}=.*|${key}=${esc_val}|" "$TARGET_ENV"
-                    else
-                        echo "${line}" >> "$TARGET_ENV"
-                    fi
-                    ;;
-            esac
-        done < "$TMP_ENV"
-    else
-        cp -f "$TMP_ENV" "$TARGET_ENV"
-    fi
-    rm -f "$TMP_ENV"
-fi
-
-# 4. Назначение прав и создание системного симлинка
-chmod +x "${APPS_DIR}/bin/manager.sh"
-chmod +x "${APPS_DIR}/etc/init.d/S99awg"
-chmod +x "${APPS_DIR}/etc/ndm/"*.sh "${APPS_DIR}/etc/ndm/ifstatechanged.d/"*.sh 2>/dev/null || true
-
-ln -sf "${APPS_DIR}/bin/manager.sh" /opt/bin/kvas-awg
-if [ -f "${APPS_DIR}/etc/ndm/ifstatechanged.d/010-awg-mtu.sh" ]; then
-    chmod +x "${APPS_DIR}/etc/ndm/ifstatechanged.d/010-awg-mtu.sh"
-    mkdir -p /opt/etc/ndm/ifstatechanged.d
-    ln -sf "${APPS_DIR}/etc/ndm/ifstatechanged.d/010-awg-mtu.sh" /opt/etc/ndm/ifstatechanged.d/010-awg-mtu.sh
-fi
-
-# 5. Автоматическая калибровка профиля ресурсов при первичной установке
-if [ "$PRESERVED_ENV" -eq 0 ]; then
-    /opt/bin/kvas-awg mode auto
-fi
-
-# 6. Установка или обновление бинарника wireproxy-awg
-if [ ! -f "${APPS_DIR}/bin/wireproxy" ]; then
-    /opt/bin/kvas-awg install
+# 4. Передача управления скрипту пост-установки пакета
+if [ -f "${APPS_DIR}/bin/setup.sh" ]; then
+    chmod +x "${APPS_DIR}/bin/setup.sh"
+    sh "${APPS_DIR}/bin/setup.sh" \
+        --preserved-env "$PRESERVED_ENV" \
+        --env-backup "$TMP_ENV" \
+        --was-running "$WAS_RUNNING"
 else
-    ln -sf "${APPS_DIR}/bin/wireproxy" /opt/bin/wireproxy
-fi
-
-if [ "$WAS_RUNNING" -eq 1 ] && [ -f "/opt/etc/init.d/S99awg" ]; then
-    echo "Перезапуск службы wireproxy после обновления пакета..."
-    /opt/etc/init.d/S99awg restart
-else
-    /opt/bin/kvas-awg
+    echo "Предупреждение: ${APPS_DIR}/bin/setup.sh не найден."
+    chmod +x "${APPS_DIR}/bin/manager.sh" 2>/dev/null || true
+    ln -sf "${APPS_DIR}/bin/manager.sh" /opt/bin/kvas-awg 2>/dev/null || true
 fi
